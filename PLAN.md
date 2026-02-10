@@ -2,86 +2,68 @@
 
 This document outlines the technical steps to address the user's requested improvements for the `chipmunk-dashboard`.
 
-## 1. Layout & Responsive Design
+## 1. Multi-Session Anchoring
 
-**Goal**: Create a flexible, responsive layout that utilizes screen real estate better and allows larger viewing areas for controls.
+**Goal**: Multi-session plots should look backwards from the *selected* session, not just the latest available session.
 
-### A. Flexible Grid System
-*   **Current State**: Fixed `grid-template-columns` based on the number of plots passed to `_row`.
-*   **Change**: Refactor `_row` or specific section layouts to use CSS Flexbox (`display: flex; flex-wrap: wrap`) or a responsive Grid (`grid-template-columns: repeat(auto-fit, minmax(400px, 1fr))`).
-    *   This ensures plots stack on smaller screens and expand on larger ones.
-    *   `dcc.Graph` will keep `responsive=True` (default) to handle window resizing.
+*   **Update `data.py`**:
+    *   Modify `multisession_metrics` to accept an optional `anchor_session_name`.
+    *   Logic: Find the index of `anchor_session_name` in the subject's full session list. Slice the DataFrame to include that session and the `N-1` preceding sessions.
+*   **Update `app.py`**:
+    *   Update `_update_multi` callback to accept the `session` dropdown value as an input.
+    *   Pass this value to `multisession_metrics`.
 
-### B. Sidebar Improvements
-*   **Current State**: Subject checklist restricted to `maxHeight: 180px`.
-*   **Change**: 
-    *   Convert Sidebar to a Flex column.
-    *   Set Subject Checklist container to `flex: 1` or `min-height: 50vh` to consume available vertical space.
+## 2. Multi-Subject Support (Single Session)
 
----
+**Goal**: When multiple subjects are selected, overlay their data on *all* single-session plots.
 
-## 2. Visualization Logic: Temporal Sequence
+*   **Update `app.py` (`_update_single` callback)**:
+    *   **Scatter Plots (Init, Wait, React, Perf)**: Remove `if i == 0` guards. Iterate through all subjects and add traces.
+        *   *Note*: Ensure unique colors/markers distinguish subjects.
+    *   **Distribution Plots (Init, Wait, React)**:
+        *   **Single Subject**: Keep as Histogram.
+        *   **Multiple Subjects**: Switch to Box Plots (similar to current Reaction Time behavior).
+    *   **Trial Outcomes (Bar Chart)**:
+        *   Change `barmode` from `stack` to `group`.
+        *   **Color Logic**:
+            *   Correct: Shades of Green per subject.
+            *   Incorrect: Shades of Red per subject.
+            *   Early Withdrawal: Shades of Grey.
+            *   No Choice: Shades of Black/Dark.
 
-**Goal**:  Reorder single-session plots to follow the logical trial sequence: **Initiation → Wait → Reaction**, with consistent "Line vs Histogram" comparisons.
+## 3. Rolling Medians
 
-### A. Data Updates (`src/chipmunk_dashboard/data.py`)
-To support the "Line vs Histogram" view for all three metrics, we need to export per-trial time series data for everything.
+**Goal**: Add rolling median lines to Initiation and Reaction time scatter plots (consistent with Wait Delta).
 
-*   **Initiation**:
-    *   Add `init_trial_nums` (X-axis) and `init_raw` (Y-axis, preserving order) to `session_metrics`.
-*   **Wait**:
-    *   Use existing `wait_delta_x/y` for the Line plot.
-    *   Use existing `wait_delta_times` for the Histogram.
-    *   **Action**: Conform to "only wait delta plots" request by dropping the raw wait time vs min comparison if strictly implied, or keeping the Delta Line + Delta Hist.
-*   **Reaction**:
-    *   Add `rt_trial_nums` (X-axis) and `rts` (Y-axis, preserving order, not just valid ones for histogram) to `session_metrics`.
-    *   *Note*: Chronometric curve is performance-based, not temporal. We will keep it but move it to a "Trial Outcomes" row or keep it with Reaction Times if space permits.
+*   **Update `data.py`**:
+    *   In `session_metrics`, compute rolling medians (window=20) for:
+        *   `init_times` (vs trial num)
+        *   `rts` (vs trial num)
+    *   Export `init_rolling_x`, `init_rolling_y` etc. in the return dict.
+*   **Update `app.py`**:
+    *   Plot these rolling lines on top of the raw scatter points in `_update_single`.
 
-### B. New Plot pairings (`src/chipmunk_dashboard/app.py`)
+## 4. Reference Lines & Styling
 
-Layout will be organized into logical rows (or 3-4 column grids):
+**Goal**: Add/Standardize reference lines at `y=0.5`.
 
-1.  **Row 1: Performance / Outcomes**
-    *   Psychometric / Chronometric curves
-    *   Bar charts / Performance over time
-2.  **Row 2: Initiation**
-    *   Plot A: Initiation Time Line (Trial vs Time)
-    *   Plot B: Initiation Time Histogram
-3.  **Row 3: Wait (Delta)**
-    *   Plot A: Wait Time Delta Line (Trial vs [Actual - Min])
-    *   Plot B: Wait Time Delta Histogram
-4.  **Row 4: Reaction**
-    *   Plot A: Reaction Time Line (Trial vs RT)
-    *   Plot B: Reaction Time Histogram
+*   **Style**: `line_dash="dash"`, `line_color="grey"`, `line_width=1` (matching existing Side Bias plot).
+*   **Locations**:
+    *   **Single Session**: `P(Right)` plot.
+    *   **Multi Session**: `Performance (Easy)` plot.
+    *   Ensure existing lines (e.g., Side Bias, Within-session performance) match this style.
 
----
-
-## 3. Multi-Session Axis Logic
-
-**Goal**: Chronological order (Old → New) with "Sessions Back" negative indexing.
-
-### A. Data Processing (`src/chipmunk_dashboard/data.py`)
-*   **Current**: `df.tail(n)` (Chronological), but metrics returned as `[::-1]` (Reverse Chronological: New → Old).
-*   **Change**: 
-    *   Remove `[::-1]` reversal for all lists (`perf_easy`, `ew_rate`, etc.).
-    *   Data will flow: Oldest Session → Newest Session.
-
-### B. Axis Labeling (`src/chipmunk_dashboard/app.py`)
-*   **Current**: `x = range(n)` (0..Positive).
-*   **Change**: 
-    *   Construct X-axis as `range(-n + 1, 1)`.
-    *   Example for `n=5`: `[-4, -3, -2, -1, 0]`.
-    *   0 represents the most recent session (right-most).
-
----
-
-## 4. Execution Steps
+## 5. Execution Steps
 
 1.  **Modify `data.py`**:
-    *   Remove list reversals in `multisession_metrics`.
-    *   Add trial-number arrays for Initiation and Reaction times in `session_metrics`.
+    *   Updates to `session_metrics` (Rolling calculations).
+    *   Updates to `multisession_metrics` (Anchoring logic).
 2.  **Modify `app.py`**:
-    *   Update `sidebar` styles.
-    *   Update `_update_single` callback to generate the new Line plots.
-    *   Reorganize `single_section` layout into the Init -> Wait -> React flow.
-    *   Update `_update_multi` to use negative integers for X-axis.
+    *   Updates to `_update_single`:
+        *   Loop logic for all plots.
+        *   Rolling median traces.
+        *   Outcome bar chart styling.
+        *   Histogram vs Box switch.
+    *   Updates to `_update_multi`:
+        *   Input `session`.
+    *   Apply consistent `add_hline` styling across all relevant plots.

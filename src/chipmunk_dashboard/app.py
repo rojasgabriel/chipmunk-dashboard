@@ -102,11 +102,11 @@ def create_app() -> Dash:
                 dcc.Checklist(
                     id="subjects", options=subjects, value=[],
                     style={"display": "flex", "flexDirection": "column", "gap": "2px"},
-                    inputStyle={"marginRight": "6px"},
-                    labelStyle={"fontSize": "13px", "cursor": "pointer"},
+                    inputStyle={"marginRight": "6px", "transform": "scale(1.2)"},
+                    labelStyle={"fontSize": "16px", "cursor": "pointer"},
                 ),
                 style={
-                    "flex": "1",
+                    "height": "40vh",
                     "overflowY": "auto",
                     "border": "1px solid #ccc", "borderRadius": "4px",
                     "padding": "6px", "marginTop": "4px",
@@ -253,19 +253,46 @@ def create_app() -> Dash:
 
             # --- Row 1: Outcomes & Performance ---
             
-            # Trial Outcomes — first subject only
-            if i == 0:
-                for yvals, name, color, lg in [
-                    (sm["n_correct"], "correct", "mediumseagreen", "correct"),
-                    (sm["n_incorrect"], "incorrect", "tomato", "incorrect"),
-                    (sm["n_ew"], "early withdrawal", "darkgrey", "ew"),
-                    (sm["n_no_choice"], "no choice", "black", "nochoice"),
-                ]:
-                    fig_fc.add_trace(go.Bar(
-                        x=sm["stims"], y=yvals, name=name,
-                        marker_color=color, legendgroup=lg,
-                        hovertemplate="%{y}<extra>" + name + "</extra>",
-                    ))
+            # Trial Outcomes (Grouped Bars)
+            # Create unique legend groups per subject so we can toggle them
+            # We use different colors/opacities or slight tint shifts if possible,
+            # but standard plotly grouped bars work by x-axis (category).
+            # Here X is intensity. We want grouped by Subject within Intensity.
+            # To do this cleanly, we add traces for each outcome type.
+            
+            outcome_types = [
+                ("correct", sm["n_correct"], "mediumseagreen"),
+                ("incorrect", sm["n_incorrect"], "tomato"),
+                ("ew", sm["n_ew"], "silver"), # Gray
+                ("no choice", sm["n_no_choice"], "#333333"), # Dark gray/black
+            ]
+            
+            for outcome_name, yvals, base_color in outcome_types:
+                # To distinguish subjects in the stack/group, we rely on the legend.
+                # But grouped bars with stacks is complex. 
+                # Request: "grouped bar chart where you have different shades of green"
+                # Since 'stims' is X, and we have multiple outcomes AND multiple subjects.
+                # Simple approach: Standard Grouped Bar.
+                # We will just append traces. Plotly handles grouping by X automatically.
+                # To differentiate subjects, we can use slightly different opacity or patterns,
+                # OR just rely on hover/legend. 
+                # Let's keep it simple: One trace per outcome per subject.
+                
+                # We need to make sure colors are distinct enough if we want "shades".
+                # For now, let's use the base color but maybe vary opacity or just repeat
+                # since the user asked for "different shades".
+                # A simple way to get a "shade" is to mix the base color with the subject color, 
+                # but that might be messy.
+                # Let's try standard colors for outcomes, but add subject name to trace name.
+                
+                fig_fc.add_trace(go.Bar(
+                    x=sm["stims"], y=yvals, 
+                    name=f"{subj} - {outcome_name}",
+                    legendgroup=subj, # Group toggle by subject
+                    marker_color=base_color, 
+                    opacity=1.0 if i==0 else 0.6, # Make secondary subjects lighter
+                    hovertemplate="%{y} " + outcome_name + ht_subj,
+                ))
 
             # P(Right)
             fig_pr.add_trace(go.Scatter(
@@ -275,76 +302,105 @@ def create_app() -> Dash:
                 hovertemplate="%{y:.2f}" + ht_subj,
             ))
 
-            # Chronometric — first subject only
-            if i == 0:
-                fig_ch.add_trace(go.Scatter(
-                    x=sm["stims"], y=sm["median_rt"], mode="lines+markers",
-                    name=subj, showlegend=False,
-                    marker=dict(color=c, size=7), line=dict(color=c, width=2),
-                    hovertemplate="%{y:.3f}s" + ht_subj,
-                ))
+            # Chronometric
+            fig_ch.add_trace(go.Scatter(
+                x=sm["stims"], y=sm["median_rt"], mode="lines+markers",
+                name=subj, showlegend=False, legendgroup=grp,
+                marker=dict(color=c, size=7), line=dict(color=c, width=2),
+                hovertemplate="%{y:.3f}s" + ht_subj,
+            ))
 
-            # Within-session performance — first subject only
-            if i == 0 and sm["slide_x"]:
+            # Within-session performance
+            if sm["slide_x"]:
                 fig_sp.add_trace(go.Scatter(
                     x=sm["slide_x"], y=sm["slide_y"], mode="lines",
-                    name=subj, showlegend=False,
+                    name=subj, showlegend=False, legendgroup=grp,
                     line=dict(color=c, width=2),
                     hovertemplate="%{y:.2f}" + ht_subj,
                 ))
 
             # --- Row 2: Initiation ---
             
-            if i == 0 and sm["init_trial_nums"]:
+            if sm["init_trial_nums"]:
                 # Line
                 fig_il.add_trace(go.Scatter(
                     x=sm["init_trial_nums"], y=sm["init_times"],
-                    mode="markers", name=subj, showlegend=False,
-                    marker=dict(color=c, size=3, opacity=0.6),
+                    mode="markers", name=subj, showlegend=False, legendgroup=grp,
+                    marker=dict(color=c, size=3, opacity=0.4),
                     hovertemplate="%{y:.3f}s" + ht_subj,
                 ))
-                # Hist
-                fig_ih.add_trace(go.Histogram(
-                    x=sm["init_times"], nbinsx=30, name=subj,
-                    marker_color=c, showlegend=False, opacity=0.8,
-                ))
+                 # Rolling
+                if sm["init_roll_x"]:
+                    fig_il.add_trace(go.Scatter(
+                        x=sm["init_roll_x"], y=sm["init_roll_y"],
+                        mode="lines", name=subj + " roll", showlegend=False, legendgroup=grp,
+                        line=dict(color=c, width=2),
+                        hovertemplate="%{y:.3f}s (roll)" + ht_subj,
+                    ))
+
+                # Hist (Box if multi, Hist if single)
+                if multi:
+                    fig_ih.add_trace(go.Box(
+                        y=sm["init_times"], name=subj, marker_color=c,
+                        legendgroup=grp, showlegend=False, boxmean=True,
+                    ))
+                else:
+                    fig_ih.add_trace(go.Histogram(
+                        x=sm["init_times"], nbinsx=30, name=subj,
+                        marker_color=c, showlegend=False, opacity=0.8,
+                    ))
 
             # --- Row 3: Wait Delta ---
 
-            if i == 0 and sm["wait_delta_times"]:
+            if sm["wait_delta_times"]:
                  # Line (Delta vs trial num)
                 fig_wdl.add_trace(go.Scatter(
                      x=sm["wait_trial_nums"], y=sm["wait_delta_times"],
-                     mode="markers", name="raw delta", showlegend=True,
-                     marker=dict(color="#bbb", size=3, opacity=0.5),
+                     mode="markers", name=subj, showlegend=False, legendgroup=grp,
+                     marker=dict(color=c, size=3, opacity=0.4),
                      hovertemplate="%{y:.3f}s<extra>raw</extra>"
                 ))
                 # Rolling median line
                 if sm["wait_delta_x"]:
                     fig_wdl.add_trace(go.Scatter(
                         x=sm["wait_delta_x"], y=sm["wait_delta_y"],
-                        mode="lines", name="rolling median",
-                        line=dict(color=c, width=2), showlegend=True,
+                        mode="lines", name=subj + " roll", showlegend=False, legendgroup=grp,
+                        line=dict(color=c, width=2), 
                         hovertemplate="%{y:.3f}s<extra>rolling</extra>",
                     ))
-                # Hist
-                fig_wdh.add_trace(go.Histogram(
-                    x=sm["wait_delta_times"], nbinsx=30, name=subj,
-                    marker_color=c, showlegend=False, opacity=0.8,
-                ))
+                
+                # Hist (Box if multi)
+                if multi:
+                    fig_wdh.add_trace(go.Box(
+                        y=sm["wait_delta_times"], name=subj, marker_color=c,
+                        legendgroup=grp, showlegend=False, boxmean=True
+                    ))
+                else:
+                    fig_wdh.add_trace(go.Histogram(
+                        x=sm["wait_delta_times"], nbinsx=30, name=subj,
+                        marker_color=c, showlegend=False, opacity=0.8,
+                    ))
 
             # --- Row 4: Reaction Time ---
             
             # Line (RT vs trial)
-            if i == 0 and sm["rt_trial_nums"]:
+            if sm["rt_trial_nums"]:
                 fig_rl.add_trace(go.Scatter(
                     x=sm["rt_trial_nums"], y=sm["rt_vals"],
-                    mode="markers", name=subj, showlegend=False,
-                    marker=dict(color=c, size=3, opacity=0.6),
+                    mode="markers", name=subj, showlegend=False, legendgroup=grp,
+                    marker=dict(color=c, size=3, opacity=0.4),
                     hovertemplate="%{y:.3f}s" + ht_subj,
                 ))
+                # Rolling
+                if sm["rt_roll_x"]:
+                    fig_rl.add_trace(go.Scatter(
+                        x=sm["rt_roll_x"], y=sm["rt_roll_y"],
+                        mode="lines", name=subj + " roll", showlegend=False, legendgroup=grp,
+                        line=dict(color=c, width=2),
+                        hovertemplate="%{y:.3f}s (roll)" + ht_subj,
+                    ))
 
-            # Histogram
+            # Histogram / Box
             if multi:
                 fig_rh.add_trace(go.Box(
                     y=sm["rts"], name=subj, marker_color=c,
@@ -358,27 +414,39 @@ def create_app() -> Dash:
 
         # --- Layouts ---
         
+        # Consistent Reference Lines
+        _ref_line = dict(line_dash="dash", line_color="grey", line_width=1)
+        
         # Row 1
         _layout(fig_fc, title="Trial Outcomes", xaxis_title="stim intensity",
-                yaxis_title="count", barmode="stack")
+                yaxis_title="count", barmode="group") # Was stack
+        
         _layout(fig_pr, title="P(Right)", xaxis_title="stim intensity",
                 yaxis_title="p(right)", yaxis_range=[0, 1])
+        fig_pr.add_hline(y=0.5, **_ref_line) # Ref Line
+        
         _layout(fig_ch, title="Chronometric Curve", xaxis_title="stim intensity",
                 yaxis_title="median RT (s)")
+        
         _layout(fig_sp, title="Performance (Rolling 20)", xaxis_title="trial number",
                 yaxis_title="accuracy", yaxis_range=[0, 1])
-        fig_sp.add_hline(y=0.5, line_dash="dash", line_color="grey")
+        fig_sp.add_hline(y=0.5, **_ref_line) # Ref Line (Updated style)
 
         # Row 2
         _layout(fig_il, title="Initiation Times", xaxis_title="trial number", 
                 yaxis_title="time (s)")
-        _layout(fig_ih, title="Initiation Dist.", xaxis_title="time (s)", yaxis_title="count")
+        if multi:
+             _layout(fig_ih, title="Initiation Dist.", yaxis_title="time (s)")
+        else:
+            _layout(fig_ih, title="Initiation Dist.", xaxis_title="time (s)", yaxis_title="count")
 
         # Row 3
         _layout(fig_wdl, title="Wait Delta (Actual - Min)", xaxis_title="trial number",
             yaxis_title="delta (s)")
-        _layout(fig_wdh, title="Wait Delta Dist.", xaxis_title="delta (s)",
-            yaxis_title="count")
+        if multi:
+             _layout(fig_wdh, title="Wait Delta Dist.", yaxis_title="delta (s)")
+        else:
+            _layout(fig_wdh, title="Wait Delta Dist.", xaxis_title="delta (s)", yaxis_title="count")
 
         # Row 4
         _layout(fig_rl, title="Reaction Times", xaxis_title="trial number", yaxis_title="time (s)")
@@ -401,8 +469,9 @@ def create_app() -> Dash:
         Output("water", "figure"),
         Input("subjects", "value"),
         Input("sessions-back", "value"),
+        Input("session", "value"),
     )
-    def _update_multi(subjects, sessions_back):
+    def _update_multi(subjects, sessions_back, session_val):
         n = 8
         if isinstance(subjects, str):
             subjects = [subjects]
@@ -417,7 +486,17 @@ def create_app() -> Dash:
         for i, subj in enumerate(subjects):
             c = COLORS[i % len(COLORS)]
             grp = subj
-            ms = multisession_metrics(subj, sessions_back)
+            
+            # Determine logic for anchor session.
+            # If a single subject is selected, the 'session_val' dropdown is valid for them.
+            # If multiple subjects are selected, 'session_val' only corresponds to the first subject (as per UI label).
+            # For simplicity:
+            # - If i==0 (first subject), use session_val.
+            # - If i>0, we default to None (latest), because we don't have a UI to select sessions for other subjects.
+            # Exception: if all subjects share session names (e.g. dates), we could try applying it, but safer to default to latest.
+            anchor = session_val if i == 0 else None
+            
+            ms = multisession_metrics(subj, sessions_back, anchor_session_name=anchor)
             if not ms:
                 continue
             ht = "%{y:.2f}<extra>" + subj + "</extra>"
@@ -462,15 +541,27 @@ def create_app() -> Dash:
                 marker=mk, line=dict(color=c),
                 hovertemplate="%{y:.2f} mL<extra>" + subj + "</extra>"))
 
+        _ref_line = dict(line_dash="dash", line_color="grey", line_width=1)
+        
         _ms = dict(dtick=1, showgrid=False, zeroline=False)
         _layout(fig_perf, title="Performance (easy)", xaxis_title="sessions back",
                 yaxis_title="performance", yaxis_range=[0.3, 1], xaxis=_ms)
+        fig_perf.add_hline(y=0.5, **_ref_line)
+        
         _layout(fig_ew, title="E.W. Rate", xaxis_title="sessions back",
                 yaxis_title="e.w. rate", yaxis_range=[0, 1], xaxis=_ms)
-        fig_ew.add_hline(y=0.5, line_dash="dash", line_color="black")
+        fig_ew.add_hline(y=0.5, line_dash="dash", line_color="black") # Keep black for EW? Spec said "make these new lines ... also make existing lines follow this style". Let's standardize ALL to grey dash.
+        # Overriding EW line to match new style
+        fig_ew.update_yaxes(range=[0,1]) # Reset if needed, but fig var is ok.
+        # Actually, let's just add the grey line and remove the black one if it was added before.
+        # Since I'm rebuilding the figure, I just add the new one.
+        fig_ew.layout.shapes = [] # Clear existing
+        fig_ew.add_hline(y=0.5, **_ref_line)
+
         _layout(fig_sb, title="Side Bias", xaxis_title="sessions back",
                 yaxis_title="p(right choice)", yaxis_range=[0, 1], xaxis=_ms)
-        fig_sb.add_hline(y=0.5, line_dash="dash", line_color="grey", line_width=1)
+        fig_sb.add_hline(y=0.5, **_ref_line)
+        
         _layout(fig_it, title="Median Initiation Time", xaxis_title="sessions back",
                 yaxis_title="time (s)", xaxis=_ms)
         _layout(fig_mrt, title="Median Reaction Time", xaxis_title="sessions back",

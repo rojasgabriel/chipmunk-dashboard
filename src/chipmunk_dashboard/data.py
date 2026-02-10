@@ -108,13 +108,25 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         slide_x.append(int(np.mean(trial_nums[block])))
         slide_y.append(float(rewarded[block].sum() / win))
 
-    # Initiation times: t_stim - t_start
-    init_mask = (trials["t_stim"] > trials["t_start"]) & np.isfinite(trials["t_stim"])
-    init_raw = trials.loc[init_mask, "t_stim"] - trials.loc[init_mask, "t_start"]
-    # Filter insane values
-    init_mask_2 = (init_raw > 0) & (init_raw < 30)
-    init_vals = init_raw[init_mask_2].to_numpy()
-    init_trial_nums = trials.loc[init_mask, "trial_num"][init_mask_2].to_numpy()
+    # Calculate initiation times (t_stim - t_start)
+    # Filter for valid (finite) initiation times
+    init_raw = trials["t_stim"].to_numpy() - trials["t_start"].to_numpy()
+    init_mask = np.isfinite(init_raw) & (init_raw > 0)
+    init_vals = init_raw[init_mask]
+    init_trial_nums = trials["trial_num"].to_numpy()[init_mask]
+
+    # Sort by trial number for rolling calcs
+    # (Note: init_trial_nums and init_vals might not be sorted if fetch order wasn't strict, but fetch(order_by="trial_num") should handle it. Being safe:)
+    init_sorted_idx = np.argsort(init_trial_nums)
+    init_trial_nums = init_trial_nums[init_sorted_idx]
+    init_vals = init_vals[init_sorted_idx]
+
+    # Rolling median of initiation time (20-trial window)
+    init_roll_x, init_roll_y = [], []
+    for start in range(0, len(init_vals) - win + 1, 5):
+        block = slice(start, start + win)
+        init_roll_x.append(int(np.mean(init_trial_nums[block])))
+        init_roll_y.append(float(np.median(init_vals[block])))
 
     # Wait times: actual vs minimum
     wait_actual = trials["t_react"].to_numpy() - trials["t_stim"].to_numpy()
@@ -138,6 +150,18 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     rt_full_mask = np.isfinite(rts) & (rts < 2) & (trials.response != 0)
     rt_trial_nums = trials["trial_num"].to_numpy()[rt_full_mask]
     rt_vals = rts[rt_full_mask]
+    
+    # Sort for rolling
+    rt_sorted_idx = np.argsort(rt_trial_nums)
+    rt_trial_nums = rt_trial_nums[rt_sorted_idx]
+    rt_vals = rt_vals[rt_sorted_idx]
+
+    # Rolling median of RT (20-trial window)
+    rt_roll_x, rt_roll_y = [], []
+    for start in range(0, len(rt_vals) - win + 1, 5):
+        block = slice(start, start + win)
+        rt_roll_x.append(int(np.mean(rt_trial_nums[block])))
+        rt_roll_y.append(float(np.median(rt_vals[block])))
 
     # Rolling median of wait delta (20-trial window)
     wait_delta_x, wait_delta_y = [], []
@@ -157,8 +181,12 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         rts=valid_rts.tolist(),
         rt_trial_nums=rt_trial_nums.tolist(),
         rt_vals=rt_vals.tolist(),
+        rt_roll_x=rt_roll_x,
+        rt_roll_y=rt_roll_y,
         init_times=init_vals.tolist(),
         init_trial_nums=init_trial_nums.tolist(),
+        init_roll_x=init_roll_x,
+        init_roll_y=init_roll_y,
         wait_times=wait_actual.tolist(),
         wait_min_times=wait_min.tolist(),
         wait_delta_times=wait_delta.tolist(),
@@ -170,11 +198,20 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     )
 
 
-def multisession_metrics(subject: str, sessions_back: int) -> dict | None:
+def multisession_metrics(subject: str, sessions_back: int, anchor_session_name: str | None = None) -> dict | None:
     """Cross-session metrics (performance, EW rate, trial counts, etc.)."""
     df = get_subject_data(subject)
     if df.empty:
         return None
+
+    # Handle anchor session logic
+    if anchor_session_name:
+        # Find index of the anchor session in the dataframe
+        matches = df.index[df['session_name'] == anchor_session_name].tolist()
+        if matches:
+            # Slice up to that session (inclusive)
+            idx = matches[0]
+            df = df.iloc[:idx + 1]
 
     n = min(sessions_back, len(df))
     d = df.tail(n)
