@@ -9,6 +9,7 @@ def main() -> None:
 
     run_p = sub.add_parser("run", help="Launch the dashboard")
     run_p.add_argument("--port", type=int, default=8050, help="Port (default: 8050)")
+    run_p.add_argument("--host", type=str, default="127.0.0.1", help="Host (default: 127.0.0.1)")
     run_p.add_argument("--debug", action="store_true", help="Enable Dash debug mode")
 
     args = parser.parse_args()
@@ -17,8 +18,8 @@ def main() -> None:
         from .app import create_app
 
         app = create_app()
-        print(f"Starting Chipmunk Dashboard on http://localhost:{args.port}")
-        app.run(port=args.port, debug=args.debug)
+        print(f"Starting Chipmunk Dashboard on http://{args.host}:{args.port}")
+        app.run(host=args.host, port=args.port, debug=args.debug)
     else:
         parser.print_help()
 
