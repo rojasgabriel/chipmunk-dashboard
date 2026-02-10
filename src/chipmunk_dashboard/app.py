@@ -1,5 +1,6 @@
 """Dash application — layout and callbacks."""
 
+from typing import Any
 import numpy as np
 from dash import Dash, dcc, html, Input, Output, callback_context
 import plotly.graph_objects as go
@@ -14,8 +15,8 @@ from .data import (
 )
 
 COLORS = px.colors.qualitative.Plotly
-_MARGIN = dict(l=50, r=20, t=42, b=40)
-_CLEAN = dict(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+_MARGIN: dict[str, int] = dict(l=50, r=20, t=42, b=40)
+_CLEAN: dict[str, Any] = dict(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
 _AXIS_CLEAN = dict(showgrid=False, zeroline=False, tickfont=dict(color="#56606b"))
 _LEGEND = dict(
     orientation="h",
@@ -77,7 +78,7 @@ def create_app() -> Dash:
     subjects = get_all_subjects()
     app = Dash(
         __name__,
-        title="Chipmunk Dashboard",
+        title="chipmunk dashboard",
         suppress_callback_exceptions=True,
         external_stylesheets=[
             "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"

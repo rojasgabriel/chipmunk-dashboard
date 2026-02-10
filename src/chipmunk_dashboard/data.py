@@ -130,9 +130,8 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     # Rolling median of initiation time (20-trial window)
     init_roll_x, init_roll_y = [], []
     for start in range(0, len(init_vals) - win + 1, 5):
-        block = slice(start, start + win)
-        init_roll_x.append(int(np.mean(init_trial_nums[block])))
-        init_roll_y.append(float(np.median(init_vals[block])))
+        init_roll_x.append(int(np.mean(init_trial_nums[start:start + win])))
+        init_roll_y.append(float(np.median(init_vals[start:start + win])))
 
     # Wait times: actual vs minimum
     wait_actual = trials["t_react"].to_numpy() - trials["t_stim"].to_numpy()
@@ -165,16 +164,14 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     # Rolling median of RT (20-trial window)
     rt_roll_x, rt_roll_y = [], []
     for start in range(0, len(rt_vals) - win + 1, 5):
-        block = slice(start, start + win)
-        rt_roll_x.append(int(np.mean(rt_trial_nums[block])))
-        rt_roll_y.append(float(np.median(rt_vals[block])))
+        rt_roll_x.append(int(np.mean(rt_trial_nums[start:start + win])))
+        rt_roll_y.append(float(np.median(rt_vals[start:start + win])))
 
     # Rolling median of wait delta (20-trial window)
     wait_delta_x, wait_delta_y = [], []
     for start in range(0, len(wait_delta) - win + 1, 5):
-        block = slice(start, start + win)
-        wait_delta_x.append(int(np.mean(wait_trial_nums[block])))
-        wait_delta_y.append(float(np.median(wait_delta[block])))
+        wait_delta_x.append(int(np.mean(wait_trial_nums[start:start + win])))
+        wait_delta_y.append(float(np.median(wait_delta[start:start + win])))
 
     return dict(
         stims=ustims.tolist(),
