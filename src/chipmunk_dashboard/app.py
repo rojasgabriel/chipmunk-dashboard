@@ -77,6 +77,7 @@ def create_app() -> Dash:
     subjects = get_all_subjects()
     app = Dash(
         __name__,
+        title="Chipmunk Dashboard",
         suppress_callback_exceptions=True,
         external_stylesheets=[
             "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
