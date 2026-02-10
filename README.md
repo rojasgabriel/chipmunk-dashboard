@@ -1,24 +1,42 @@
 # chipmunk-dashboard
 
-A web dashboard for visualizing chipmunk behavioral data using `labdata2`.
+A Plotly Dash interface for visualizing mouse behavioral data from the `chipmunk` task.
 
-## Install
+## Prerequisites
+
+1.  **VPN**: You must be connected to the lab network/VPN to access the DataJoint database.
+2.  **Environment**: Ensure `labdata` and the `chipmunk` schema libraries are installed in your Python environment.
+
+## Installation
+
+Clone the repository and install in editable mode:
 
 ```bash
+git clone https://github.com/rojasgabriel/chipmunk-dashboard.git
+cd chipmunk-dashboard
 pip install -e .
 ```
 
-## Usage
+## Running the Dashboard
+
+Start the server:
 
 ```bash
-chipmunk-dashboard run              # http://localhost:8050
-chipmunk-dashboard run --port 9000  # custom port
-chipmunk-dashboard run --debug      # hot-reload on code changes
+chipmunk-dashboard run
+```
+
+Open your browser to [http://localhost:8050](http://localhost:8050).
+
+**Options:**
+
+```bash
+chipmunk-dashboard run --port 9000  # Run on a specific port
+chipmunk-dashboard run --debug      # Enable hot-reloading for development
 ```
 
 ## Features
 
-- **Subject selector** — multi-select subjects to overlay on the same plots
-- **Session picker** — choose which session to inspect (psychometric curves, reaction times)
-- **Sessions-back slider** — control how many recent sessions appear in cross-session analyses
-- Interactive Plotly charts: fraction correct, P(right), reaction times, performance, early-withdrawal rate, trial counts
+- **Multi-Subject Comparison**: Select multiple subjects to overlay performance metrics.
+- **Session Inspector**: Deep dive into specific sessions (Psychometric curves, Response times, Wait times).
+- **Longitudinal Tracking**: Visualize performance trends, bias, and water intake across recent sessions.
+- **Auto-Refresh**: Dashboard updates automatically every 5 minutes during experiments.
