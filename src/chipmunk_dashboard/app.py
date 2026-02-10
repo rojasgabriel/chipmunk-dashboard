@@ -106,7 +106,8 @@ def create_app() -> Dash:
                     labelStyle={"fontSize": "13px", "cursor": "pointer"},
                 ),
                 style={
-                    "maxHeight": "180px", "overflowY": "auto",
+                    "flex": "1",
+                    "overflowY": "auto",
                     "border": "1px solid #ccc", "borderRadius": "4px",
                     "padding": "6px", "marginTop": "4px",
                 },
@@ -127,25 +128,32 @@ def create_app() -> Dash:
             "borderRight": f"1px solid {_THEME['border']}",
             "background": _THEME["panel"],
             "flexShrink": 0,
+            "display": "flex",
+            "flexDirection": "column",
         },
     )
 
     # -- content sections -----------------------------------------------------
     single_section = html.Div([
         html.H3("Single Session", style={"margin": "24px 0 12px", "borderBottom": "1px solid #ddd"}),
-        _row("frac-correct", "p-right"),
-        _row("chrono", "react-times"),
-        _row("init-hist", "wait-hist"),
-        _row("wait-line", "wait-delta-hist"),
-        _row("session-perf"),
+        
+        # Row 1: Performance / Outcomes
+        _row("frac-correct", "p-right", "chrono", "session-perf"),
+        
+        # Row 2: Initiation
+        _row("init-line", "init-hist"),
+        
+        # Row 3: Wait (Delta)
+        _row("wait-delta-line", "wait-delta-hist"),
+        
+        # Row 4: Reaction
+        _row("react-line", "react-hist"),
     ])
 
     multi_section = html.Div([
         html.H3("Multi Session", style={"margin": "24px 0 12px", "borderBottom": "1px solid #ddd"}),
-        _row("performance", "ew-rate"),
-        _row("side-bias", "init-times"),
-        _row("median-rt", "median-wait"),
-        _row("trial-counts", "water"),
+        _row("performance", "ew-rate", "side-bias", "trial-counts"),
+        _row("init-times", "median-wait", "median-rt", "water"),
     ])
 
     main_area = html.Div(
@@ -204,17 +212,18 @@ def create_app() -> Dash:
         Output("frac-correct", "figure"),
         Output("p-right", "figure"),
         Output("chrono", "figure"),
-        Output("react-times", "figure"),
-        Output("init-hist", "figure"),
-        Output("wait-hist", "figure"),
-        Output("wait-line", "figure"),
-        Output("wait-delta-hist", "figure"),
         Output("session-perf", "figure"),
+        Output("init-line", "figure"),
+        Output("init-hist", "figure"),
+        Output("wait-delta-line", "figure"),
+        Output("wait-delta-hist", "figure"),
+        Output("react-line", "figure"),
+        Output("react-hist", "figure"),
         Input("subjects", "value"),
         Input("session", "value"),
     )
     def _update_single(subjects, session):
-        n = 9
+        n = 10
         if isinstance(subjects, str):
             subjects = [subjects]
         if not subjects:
@@ -222,10 +231,12 @@ def create_app() -> Dash:
             return tuple(e for _ in range(n))
 
         multi = len(subjects) > 1
-        fig_fc, fig_pr, fig_ch = go.Figure(), go.Figure(), go.Figure()
-        fig_rt, fig_ih, fig_wh = go.Figure(), go.Figure(), go.Figure()
-        fig_wl, fig_wdh = go.Figure(), go.Figure()
-        fig_sp = go.Figure()
+        
+        # Initialize figures
+        fig_fc, fig_pr, fig_ch, fig_sp = go.Figure(), go.Figure(), go.Figure(), go.Figure()
+        fig_il, fig_ih = go.Figure(), go.Figure()
+        fig_wdl, fig_wdh = go.Figure(), go.Figure()
+        fig_rl, fig_rh = go.Figure(), go.Figure()
 
         for i, subj in enumerate(subjects):
             c = COLORS[i % len(COLORS)]
@@ -237,7 +248,11 @@ def create_app() -> Dash:
             sm = session_metrics(subj, ses)
             if not sm:
                 continue
+            
+            ht_subj = "<extra>" + subj + "</extra>"
 
+            # --- Row 1: Outcomes & Performance ---
+            
             # Trial Outcomes — first subject only
             if i == 0:
                 for yvals, name, color, lg in [
@@ -257,104 +272,122 @@ def create_app() -> Dash:
                 x=sm["stims"], y=sm["p_right"], mode="lines+markers",
                 name=subj, showlegend=multi, legendgroup=grp,
                 marker=dict(color=c, size=7),
-                hovertemplate="%{y:.2f}<extra>" + subj + "</extra>",
+                hovertemplate="%{y:.2f}" + ht_subj,
             ))
 
             # Chronometric — first subject only
             if i == 0:
                 fig_ch.add_trace(go.Scatter(
                     x=sm["stims"], y=sm["median_rt"], mode="lines+markers",
-                    name=subj, legendgroup=grp, showlegend=False,
+                    name=subj, showlegend=False,
                     marker=dict(color=c, size=7), line=dict(color=c, width=2),
-                    hovertemplate="%{y:.3f}s<extra>" + subj + "</extra>",
-                ))
-
-            # Reaction Times
-            if multi:
-                fig_rt.add_trace(go.Box(
-                    y=sm["rts"], name=subj, marker_color=c,
-                    legendgroup=grp, showlegend=False, boxmean=True,
-                ))
-            else:
-                fig_rt.add_trace(go.Histogram(
-                    x=sm["rts"], nbinsx=20, name=subj, marker_color=c,
-                    legendgroup=grp, showlegend=False, opacity=0.8,
-                ))
-
-            # Initiation Time histogram — first subject only
-            if i == 0 and sm["init_times"]:
-                fig_ih.add_trace(go.Histogram(
-                    x=sm["init_times"], nbinsx=25, name=subj,
-                    marker_color=c, showlegend=False, opacity=0.8,
-                ))
-
-            # Wait Time histogram — first subject only
-            if i == 0 and sm["wait_times"]:
-                fig_wh.add_trace(go.Histogram(
-                    x=sm["wait_times"], nbinsx=25, name=subj,
-                    marker_color=c, showlegend=False, opacity=0.8,
-                ))
-
-            # Wait time: actual vs min, with rolling delta — first subject only
-            if i == 0 and sm["wait_trial_nums"]:
-                fig_wl.add_trace(go.Scatter(
-                    x=sm["wait_trial_nums"], y=sm["wait_times"],
-                    mode="lines", name="actual wait",
-                    line=dict(color=c, width=2), showlegend=True,
-                    hovertemplate="%{y:.3f}s<extra>actual wait</extra>",
-                ))
-                fig_wl.add_trace(go.Scatter(
-                    x=sm["wait_trial_nums"], y=sm["wait_min_times"],
-                    mode="lines", name="min wait",
-                    line=dict(color="black", width=1, dash="dash"),
-                    showlegend=True,
-                    hovertemplate="%{y:.3f}s<extra>min wait</extra>",
-                ))
-                if sm["wait_delta_x"]:
-                    fig_wl.add_trace(go.Scatter(
-                        x=sm["wait_delta_x"], y=sm["wait_delta_y"],
-                        mode="lines", name="delta (rolling median)",
-                        line=dict(color="gray", width=2), showlegend=True,
-                        hovertemplate="%{y:.3f}s<extra>delta</extra>",
-                    ))
-
-            # Wait delta histogram — first subject only
-            if i == 0 and sm["wait_delta_times"]:
-                fig_wdh.add_trace(go.Histogram(
-                    x=sm["wait_delta_times"], nbinsx=25, name=subj,
-                    marker_color=c, showlegend=False, opacity=0.8,
+                    hovertemplate="%{y:.3f}s" + ht_subj,
                 ))
 
             # Within-session performance — first subject only
             if i == 0 and sm["slide_x"]:
                 fig_sp.add_trace(go.Scatter(
                     x=sm["slide_x"], y=sm["slide_y"], mode="lines",
-                    name=subj, legendgroup=grp, showlegend=False,
+                    name=subj, showlegend=False,
                     line=dict(color=c, width=2),
-                    hovertemplate="%{y:.2f}<extra>" + subj + "</extra>",
+                    hovertemplate="%{y:.2f}" + ht_subj,
                 ))
 
+            # --- Row 2: Initiation ---
+            
+            if i == 0 and sm["init_trial_nums"]:
+                # Line
+                fig_il.add_trace(go.Scatter(
+                    x=sm["init_trial_nums"], y=sm["init_times"],
+                    mode="markers", name=subj, showlegend=False,
+                    marker=dict(color=c, size=3, opacity=0.6),
+                    hovertemplate="%{y:.3f}s" + ht_subj,
+                ))
+                # Hist
+                fig_ih.add_trace(go.Histogram(
+                    x=sm["init_times"], nbinsx=30, name=subj,
+                    marker_color=c, showlegend=False, opacity=0.8,
+                ))
+
+            # --- Row 3: Wait Delta ---
+
+            if i == 0 and sm["wait_delta_times"]:
+                 # Line (Delta vs trial num)
+                fig_wdl.add_trace(go.Scatter(
+                     x=sm["wait_trial_nums"], y=sm["wait_delta_times"],
+                     mode="markers", name="raw delta", showlegend=True,
+                     marker=dict(color="#bbb", size=3, opacity=0.5),
+                     hovertemplate="%{y:.3f}s<extra>raw</extra>"
+                ))
+                # Rolling median line
+                if sm["wait_delta_x"]:
+                    fig_wdl.add_trace(go.Scatter(
+                        x=sm["wait_delta_x"], y=sm["wait_delta_y"],
+                        mode="lines", name="rolling median",
+                        line=dict(color=c, width=2), showlegend=True,
+                        hovertemplate="%{y:.3f}s<extra>rolling</extra>",
+                    ))
+                # Hist
+                fig_wdh.add_trace(go.Histogram(
+                    x=sm["wait_delta_times"], nbinsx=30, name=subj,
+                    marker_color=c, showlegend=False, opacity=0.8,
+                ))
+
+            # --- Row 4: Reaction Time ---
+            
+            # Line (RT vs trial)
+            if i == 0 and sm["rt_trial_nums"]:
+                fig_rl.add_trace(go.Scatter(
+                    x=sm["rt_trial_nums"], y=sm["rt_vals"],
+                    mode="markers", name=subj, showlegend=False,
+                    marker=dict(color=c, size=3, opacity=0.6),
+                    hovertemplate="%{y:.3f}s" + ht_subj,
+                ))
+
+            # Histogram
+            if multi:
+                fig_rh.add_trace(go.Box(
+                    y=sm["rts"], name=subj, marker_color=c,
+                    legendgroup=grp, showlegend=False, boxmean=True,
+                ))
+            else:
+                 fig_rh.add_trace(go.Histogram(
+                    x=sm["rts"], nbinsx=30, name=subj, marker_color=c,
+                    legendgroup=grp, showlegend=False, opacity=0.8,
+                ))
+
+        # --- Layouts ---
+        
+        # Row 1
         _layout(fig_fc, title="Trial Outcomes", xaxis_title="stim intensity",
                 yaxis_title="count", barmode="stack")
         _layout(fig_pr, title="P(Right)", xaxis_title="stim intensity",
                 yaxis_title="p(right)", yaxis_range=[0, 1])
         _layout(fig_ch, title="Chronometric Curve", xaxis_title="stim intensity",
                 yaxis_title="median RT (s)")
-        if multi:
-            _layout(fig_rt, title="Reaction Times", yaxis_title="RT (s)")
-        else:
-            _layout(fig_rt, title="Reaction Times", xaxis_title="RT (s)", yaxis_title="count")
-        _layout(fig_ih, title="Initiation Times", xaxis_title="time (s)", yaxis_title="count")
-        _layout(fig_wh, title="Wait Times", xaxis_title="time (s)", yaxis_title="count")
-        _layout(fig_wl, title="Wait Time vs Min (Session)", xaxis_title="trial number",
-            yaxis_title="time (s)")
-        _layout(fig_wdh, title="Wait Delta (Actual - Min)", xaxis_title="time (s)",
-            yaxis_title="count")
-        _layout(fig_sp, title="Within-Session Performance", xaxis_title="trial number",
-                yaxis_title="accuracy (20-trial window)", yaxis_range=[0, 1])
-        fig_sp.add_hline(y=0.5, line_dash="dash", line_color="grey", line_width=1)
+        _layout(fig_sp, title="Performance (Rolling 20)", xaxis_title="trial number",
+                yaxis_title="accuracy", yaxis_range=[0, 1])
+        fig_sp.add_hline(y=0.5, line_dash="dash", line_color="grey")
 
-        return fig_fc, fig_pr, fig_ch, fig_rt, fig_ih, fig_wh, fig_wl, fig_wdh, fig_sp
+        # Row 2
+        _layout(fig_il, title="Initiation Times", xaxis_title="trial number", 
+                yaxis_title="time (s)")
+        _layout(fig_ih, title="Initiation Dist.", xaxis_title="time (s)", yaxis_title="count")
+
+        # Row 3
+        _layout(fig_wdl, title="Wait Delta (Actual - Min)", xaxis_title="trial number",
+            yaxis_title="delta (s)")
+        _layout(fig_wdh, title="Wait Delta Dist.", xaxis_title="delta (s)",
+            yaxis_title="count")
+
+        # Row 4
+        _layout(fig_rl, title="Reaction Times", xaxis_title="trial number", yaxis_title="time (s)")
+        if multi:
+            _layout(fig_rh, title="Reaction Time Dist.", yaxis_title="RT (s)")
+        else:
+            _layout(fig_rh, title="Reaction Time Dist.", xaxis_title="RT (s)", yaxis_title="count")
+
+        return fig_fc, fig_pr, fig_ch, fig_sp, fig_il, fig_ih, fig_wdl, fig_wdh, fig_rl, fig_rh
 
     # ── Multi-session plots ──────────────────────────────────────────────────
     @app.callback(

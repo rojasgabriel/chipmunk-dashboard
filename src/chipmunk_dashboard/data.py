@@ -109,8 +109,12 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         slide_y.append(float(rewarded[block].sum() / win))
 
     # Initiation times: t_stim - t_start
-    init_raw = trials["t_stim"].to_numpy() - trials["t_start"].to_numpy()
-    init_raw = init_raw[np.isfinite(init_raw) & (init_raw > 0) & (init_raw < 30)]
+    init_mask = (trials["t_stim"] > trials["t_start"]) & np.isfinite(trials["t_stim"])
+    init_raw = trials.loc[init_mask, "t_stim"] - trials.loc[init_mask, "t_start"]
+    # Filter insane values
+    init_mask_2 = (init_raw > 0) & (init_raw < 30)
+    init_vals = init_raw[init_mask_2].to_numpy()
+    init_trial_nums = trials.loc[init_mask, "trial_num"][init_mask_2].to_numpy()
 
     # Wait times: actual vs minimum
     wait_actual = trials["t_react"].to_numpy() - trials["t_stim"].to_numpy()
@@ -126,7 +130,14 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     wait_actual = wait_actual[wait_mask]
     wait_min = wait_min[wait_mask]
     wait_delta = wait_actual - wait_min
+    
+    # Wait delta filtered for histogram/lines
     wait_trial_nums = trials["trial_num"].to_numpy()[wait_mask]
+
+    # Reaction times (Trial vs RT)
+    rt_full_mask = np.isfinite(rts) & (rts < 2) & (trials.response != 0)
+    rt_trial_nums = trials["trial_num"].to_numpy()[rt_full_mask]
+    rt_vals = rts[rt_full_mask]
 
     # Rolling median of wait delta (20-trial window)
     wait_delta_x, wait_delta_y = [], []
@@ -144,7 +155,10 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         p_right=p_right,
         median_rt=median_rt,
         rts=valid_rts.tolist(),
-        init_times=init_raw.tolist(),
+        rt_trial_nums=rt_trial_nums.tolist(),
+        rt_vals=rt_vals.tolist(),
+        init_times=init_vals.tolist(),
+        init_trial_nums=init_trial_nums.tolist(),
         wait_times=wait_actual.tolist(),
         wait_min_times=wait_min.tolist(),
         wait_delta_times=wait_delta.tolist(),
@@ -209,15 +223,18 @@ def multisession_metrics(subject: str, sessions_back: int) -> dict | None:
         except Exception:
             water.append(np.nan)
 
-    # x=0 is most recent (0 sessions back), x=n-1 is oldest
+    # Chronological X-axis: -n+1 ... 0
+    # Data is already chronological (tail(n)), do NOT reverse lists
+    x_axis = list(range(-len(d) + 1, 1))
+
     return dict(
-        x=list(range(n)),
-        perf_easy=d["performance_easy"].values[::-1].tolist(),
-        ew_rate=ew_rate[::-1],
-        n_with_choice=d["n_with_choice"].values[::-1].tolist(),
-        side_bias=side_bias[::-1],
-        median_init=median_init[::-1],
-        median_rt=median_rt_list[::-1],
-        median_wait=median_wait_list[::-1],
-        water=water[::-1],
+        x=x_axis,
+        perf_easy=d["performance_easy"].values.tolist(),
+        ew_rate=ew_rate,
+        n_with_choice=d["n_with_choice"].values.tolist(),
+        side_bias=side_bias,
+        median_init=median_init,
+        median_rt=median_rt_list,
+        median_wait=median_wait_list,
+        water=water,
     )
