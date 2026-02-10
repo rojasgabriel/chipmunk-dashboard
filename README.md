@@ -51,4 +51,5 @@ chipmunk-dashboard run --host 0.0.0.0 --port 8050
 
 ## Known issues
 
-This does not work if your `datajoint` version is `>2.0`. It was developed and currently works in `0.14.1`.
+- This does not work if your `datajoint` version is `>2.0`. It was developed and currently works in `0.14.1`.
+- When selecting a different session from the dropdown menu, this will update the single session plots, but the multisession ones ignore this and just plot data from `n` sessions back from the latest session in the database.
