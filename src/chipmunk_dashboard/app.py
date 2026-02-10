@@ -1,11 +1,17 @@
 """Dash application — layout and callbacks."""
 
 import numpy as np
-from dash import Dash, dcc, html, Input, Output
+from dash import Dash, dcc, html, Input, Output, callback_context
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
-from .data import get_all_subjects, get_sessions, session_metrics, multisession_metrics
+from .data import (
+    get_all_subjects,
+    get_sessions,
+    session_metrics,
+    multisession_metrics,
+    clear_data_cache,
+)
 
 COLORS = px.colors.qualitative.Plotly
 _MARGIN = dict(l=50, r=20, t=42, b=40)
@@ -77,6 +83,9 @@ def create_app() -> Dash:
         ],
     )
 
+    # Auto-refresh interval (5 minutes)
+    auto_refresh = dcc.Interval(id="auto-refresh", interval=5*60*1000, n_intervals=0)
+
     # -- helpers --------------------------------------------------------------
     def _graph(gid: str) -> dcc.Graph:
         return dcc.Graph(
@@ -113,6 +122,10 @@ def create_app() -> Dash:
                     "border": "1px solid #ccc", "borderRadius": "4px",
                     "padding": "6px", "marginTop": "4px",
                 },
+            ),
+            html.Button(
+                "Clear Selection", id="clear-subjects", n_clicks=0,
+                style={"marginTop": "8px", "width": "100%", "cursor": "pointer"}
             ),
             html.Br(),
             html.Label("Session (first subject)", style={"fontWeight": "bold"}),
@@ -172,6 +185,7 @@ def create_app() -> Dash:
 
     app.layout = html.Div(
         [
+            auto_refresh,
             html.H2(
                 "Chipmunk Dashboard",
                 style={
@@ -209,6 +223,14 @@ def create_app() -> Dash:
         opts = [{"label": s, "value": s} for s in sessions]
         return opts, sessions[-1] if sessions else None
 
+    @app.callback(
+        Output("subjects", "value"),
+        Input("clear-subjects", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def _clear_subjects(n_clicks):
+        return []
+
     # ── Single-session plots ─────────────────────────────────────────────────
     @app.callback(
         Output("frac-correct", "figure"),
@@ -223,8 +245,14 @@ def create_app() -> Dash:
         Output("react-hist", "figure"),
         Input("subjects", "value"),
         Input("session", "value"),
+        Input("auto-refresh", "n_intervals"),
     )
-    def _update_single(subjects, session):
+    def _update_single(subjects, session, n_intervals):
+        # Clear cache logic
+        ctx = callback_context
+        if ctx.triggered and "auto-refresh" in ctx.triggered[0]["prop_id"]:
+            clear_data_cache()
+
         n = 10
         if isinstance(subjects, str):
             subjects = [subjects]
@@ -426,15 +454,15 @@ def create_app() -> Dash:
         _layout(fig_fc, title="Trial Outcomes", xaxis_title="stim intensity",
                 yaxis_title="count", barmode="stack")
         
-        _layout(fig_pr, title="P(Right)", xaxis_title="stim intensity",
+        _layout(fig_pr, title="Psychometric Curve", xaxis_title="stim intensity",
                 yaxis_title="p(right)", yaxis_range=[0, 1])
         fig_pr.add_hline(y=0.5, **_ref_line) # Ref Line
         
         _layout(fig_ch, title="Chronometric Curve", xaxis_title="stim intensity",
-                yaxis_title="median RT (s)")
+                yaxis_title="median response time (s)")
         
-        _layout(fig_sp, title="Performance (Rolling 20)", xaxis_title="trial number",
-                yaxis_title="accuracy", yaxis_range=[0, 1])
+        _layout(fig_sp, title="Performance (easy)<br><sup>20 trial rolling mean</sup>", xaxis_title="trial number",
+                yaxis_title="correct rate", yaxis_range=[0, 1])
         fig_sp.add_hline(y=0.5, **_ref_line) # Ref Line (Updated style)
 
         # Row 2
@@ -458,18 +486,18 @@ def create_app() -> Dash:
 
         # Row 3
         _layout(fig_wdl, title="Wait Delta (Actual - Min)", xaxis_title="trial number",
-            yaxis_title="delta (s)")
+            yaxis_title="time (s)")
         if multi:
-             _layout(fig_wdh, title="Wait Delta Dist.", yaxis_title="delta (s)")
+             _layout(fig_wdh, title="Wait Delta Dist.", yaxis_title="time (s)")
         else:
-            _layout(fig_wdh, title="Wait Delta Dist.", xaxis_title="delta (s)", yaxis_title="count")
+            _layout(fig_wdh, title="Wait Delta Dist.", xaxis_title="time (s)", yaxis_title="count")
 
         # Row 4
-        _layout(fig_rl, title="Reaction Times", xaxis_title="trial number", yaxis_title="time (s)")
+        _layout(fig_rl, title="Response Times", xaxis_title="trial number", yaxis_title="time (s)")
         if multi:
-            _layout(fig_rh, title="Reaction Time Dist.", yaxis_title="RT (s)")
+            _layout(fig_rh, title="Response Time Dist.", yaxis_title="time (s)")
         else:
-            _layout(fig_rh, title="Reaction Time Dist.", xaxis_title="RT (s)", yaxis_title="count")
+            _layout(fig_rh, title="Response Time Dist.", xaxis_title="time (s)", yaxis_title="count")
 
         return fig_fc, fig_pr, fig_ch, fig_sp, fig_il, fig_ih, fig_wdl, fig_wdh, fig_rl, fig_rh
 
@@ -486,8 +514,14 @@ def create_app() -> Dash:
         Input("subjects", "value"),
         Input("sessions-back", "value"),
         Input("session", "value"),
+        Input("auto-refresh", "n_intervals"),
     )
-    def _update_multi(subjects, sessions_back, session_val):
+    def _update_multi(subjects, sessions_back, session_val, n_intervals):
+        # Clear cache logic (redundant but safe if this callback runs first)
+        ctx = callback_context
+        if ctx.triggered and "auto-refresh" in ctx.triggered[0]["prop_id"]:
+            clear_data_cache()
+
         n = 8
         if isinstance(subjects, str):
             subjects = [subjects]
@@ -580,7 +614,7 @@ def create_app() -> Dash:
         
         _layout(fig_it, title="Median Initiation Time", xaxis_title="sessions back",
                 yaxis_title="time (s)", xaxis=_ms)
-        _layout(fig_mrt, title="Median Reaction Time", xaxis_title="sessions back",
+        _layout(fig_mrt, title="Median Response Time", xaxis_title="sessions back",
                 yaxis_title="time (s)", xaxis=_ms)
         _layout(fig_mwt, title="Median Wait Time", xaxis_title="sessions back",
                 yaxis_title="time (s)", xaxis=_ms)

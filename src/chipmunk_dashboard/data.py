@@ -37,6 +37,12 @@ def get_session_trials(subject: str, session_name: str) -> pd.DataFrame:
         )
 
 
+def clear_data_cache() -> None:
+    """Clear lru_caches to force DB refetch."""
+    get_subject_data.cache_clear()
+    get_session_trials.cache_clear()
+
+
 def get_sessions(subject: str) -> list[str]:
     """Return session names for a subject (chronological order)."""
     df = get_subject_data(subject)
