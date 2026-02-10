@@ -1,5 +1,6 @@
 """Dash application — layout and callbacks."""
 
+import numpy as np
 from dash import Dash, dcc, html, Input, Output
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -325,7 +326,7 @@ def create_app() -> Dash:
 
             # --- Row 2: Initiation ---
             
-            if sm["init_trial_nums"]:
+            if sm["init_trial_nums"] and sm["init_times"]:
                 # Line
                 fig_il.add_trace(go.Scatter(
                     x=sm["init_trial_nums"], y=sm["init_times"],
@@ -364,8 +365,8 @@ def create_app() -> Dash:
                      marker=dict(color=c, size=3, opacity=0.4),
                      hovertemplate="%{y:.3f}s<extra>raw</extra>"
                 ))
-                # Rolling median line
-                if sm["wait_delta_x"]:
+                # Rolling median line - ensure rolling data exists
+                if sm["wait_delta_x"] and sm["wait_delta_y"]:
                     fig_wdl.add_trace(go.Scatter(
                         x=sm["wait_delta_x"], y=sm["wait_delta_y"],
                         mode="lines", name=subj + " roll", showlegend=False, legendgroup=grp,
@@ -437,8 +438,19 @@ def create_app() -> Dash:
         fig_sp.add_hline(y=0.5, **_ref_line) # Ref Line (Updated style)
 
         # Row 2
+        
+        # Auto-scale Initiation Y-axis based on 98th percentiles (REVERTED LOGIC)
+        # Recalculate basic 98th percentile logic here if we want *some* filtering,
+        # otherwise, just leave it mostly open but maybe max(10s) floor?
+        # User asked for "normal box plots", "showing outlier points".
+        # If we show outliers, Plotly will scale to them. 
+        # But if outliers are HUGE (200s), the box is tiny.
+        # User said "let's back to... showing outlier points".
+        # So we remove manual scaling logic that hides them.
+        
         _layout(fig_il, title="Initiation Times", xaxis_title="trial number", 
                 yaxis_title="time (s)")
+
         if multi:
              _layout(fig_ih, title="Initiation Dist.", yaxis_title="time (s)")
         else:
@@ -562,9 +574,9 @@ def create_app() -> Dash:
         fig_ew.layout.shapes = [] # Clear existing
         fig_ew.add_hline(y=0.5, **_ref_line)
 
-        _layout(fig_sb, title="Side Bias", xaxis_title="sessions back",
-                yaxis_title="p(right choice)", yaxis_range=[0, 1], xaxis=_ms)
-        fig_sb.add_hline(y=0.5, **_ref_line)
+        _layout(fig_sb, title="Bias Index", xaxis_title="sessions back",
+                yaxis_title="bias (R - L)", yaxis_range=[-0.6, 0.6], xaxis=_ms)
+        fig_sb.add_hline(y=0.0, **_ref_line)
         
         _layout(fig_it, title="Median Initiation Time", xaxis_title="sessions back",
                 yaxis_title="time (s)", xaxis=_ms)

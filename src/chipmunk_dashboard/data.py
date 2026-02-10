@@ -221,9 +221,10 @@ def multisession_metrics(subject: str, sessions_back: int, anchor_session_name: 
         resp = np.array(row.response_values)
         choice = np.isin(resp, [-1, 1])
         ew_rate.append((~choice).sum() / resp.shape[0])
-        # Side bias: fraction rightward among choice trials
+        # Side bias: Bias Index (fraction right - 0.5)
         if choice.sum() > 0:
-            side_bias.append(float((resp[choice] == 1).sum() / choice.sum()))
+            frac = float((resp[choice] == 1).sum() / choice.sum())
+            side_bias.append(frac - 0.5)
         else:
             side_bias.append(np.nan)
         # Median initiation time

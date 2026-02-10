@@ -48,6 +48,12 @@ This document outlines the technical steps to address the user's requested impro
 **Goal**: Add/Standardize reference lines at `y=0.5`.
 
 *   **Style**: `line_dash="dash"`, `line_color="grey"`, `line_width=1` (matching existing Side Bias plot).
+
+## 5. Refinements (Current)
+
+- [x] **Fix Trial Outcomes**: Grouped bar chart per subject, colored by outcome type. Use distinct colors for correct/incorrect/ew/no-choice.
+- [ ] **Fix Wait Time Rolling Median**: Ensure the rolling median lines appear on the Wait Time Scatter plot.
+- [ ] **Refine Initiation Plot**: Scale Y-axis to 80th percentile to hide outliers.
 *   **Locations**:
     *   **Single Session**: `P(Right)` plot.
     *   **Multi Session**: `Performance (Easy)` plot.
