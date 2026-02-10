@@ -25,7 +25,7 @@ Start the server:
 chipmunk-dashboard run
 ```
 
-Open your browser to [http://localhost:8050](http://localhost:8050).
+Open your browser to `http://localhost:8050`.
 
 **Options:**
 
@@ -34,9 +34,21 @@ chipmunk-dashboard run --port 9000  # Run on a specific port
 chipmunk-dashboard run --debug      # Enable hot-reloading for development
 ```
 
+## Remote Access
+
+**On the remote machine**, listen on all interfaces:
+```bash
+chipmunk-dashboard run --host 0.0.0.0 --port 8050
+```
+**On your local machine**, browse to `http://<remote-ip-or-hostname>:8050`.
+
 ## Features
 
 - **Multi-Subject Comparison**: Select multiple subjects to overlay performance metrics.
 - **Session Inspector**: Deep dive into specific sessions (Psychometric curves, Response times, Wait times).
 - **Longitudinal Tracking**: Visualize performance trends, bias, and water intake across recent sessions.
 - **Auto-Refresh**: Dashboard updates automatically every 5 minutes during experiments.
+
+## Known issues
+
+This does not work if your `datajoint` version is `>2.0`. It was developed and currently works in `0.14.1`.
