@@ -2,6 +2,7 @@
 
 from dash import Dash, dcc, html, Input, Output
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import plotly.express as px
 from .data import get_all_subjects, get_sessions, session_metrics, multisession_metrics
 
@@ -226,14 +227,33 @@ def create_app() -> Dash:
         n = 10
         if isinstance(subjects, str):
             subjects = [subjects]
-        if not subjects:
+        # Filter subjects with data first to determine subplot layout for outcomes
+        valid_subjects = []
+        for s in subjects:
+            sl = get_sessions(s)
+            if sl:
+                valid_subjects.append(s)
+
+        if not valid_subjects:
             e = _empty_fig()
             return tuple(e for _ in range(n))
 
         multi = len(subjects) > 1
+        multi_col = len(valid_subjects) > 1
+        subj_to_no = {s: i + 1 for i, s in enumerate(valid_subjects)}
         
         # Initialize figures
-        fig_fc, fig_pr, fig_ch, fig_sp = go.Figure(), go.Figure(), go.Figure(), go.Figure()
+        if multi_col:
+            fig_fc = make_subplots(
+                rows=1, cols=len(valid_subjects), 
+                subplot_titles=valid_subjects,
+                shared_yaxes=True,
+                horizontal_spacing=0.03
+            )
+        else:
+            fig_fc = go.Figure()
+
+        fig_pr, fig_ch, fig_sp = go.Figure(), go.Figure(), go.Figure()
         fig_il, fig_ih = go.Figure(), go.Figure()
         fig_wdl, fig_wdh = go.Figure(), go.Figure()
         fig_rl, fig_rh = go.Figure(), go.Figure()
@@ -253,46 +273,30 @@ def create_app() -> Dash:
 
             # --- Row 1: Outcomes & Performance ---
             
-            # Trial Outcomes (Grouped Bars)
-            # Create unique legend groups per subject so we can toggle them
-            # We use different colors/opacities or slight tint shifts if possible,
-            # but standard plotly grouped bars work by x-axis (category).
-            # Here X is intensity. We want grouped by Subject within Intensity.
-            # To do this cleanly, we add traces for each outcome type.
-            
+            # Trial Outcomes (Stacked Bars in Subplots)
             outcome_types = [
                 ("correct", sm["n_correct"], "mediumseagreen"),
                 ("incorrect", sm["n_incorrect"], "tomato"),
-                ("ew", sm["n_ew"], "silver"), # Gray
-                ("no choice", sm["n_no_choice"], "#333333"), # Dark gray/black
+                ("ew", sm["n_ew"], "silver"),
+                ("no choice", sm["n_no_choice"], "#333333"),
             ]
             
+            # Only show legend entries once (for the first subject processed)
+            show_leg = (i == 0)
+            
             for outcome_name, yvals, base_color in outcome_types:
-                # To distinguish subjects in the stack/group, we rely on the legend.
-                # But grouped bars with stacks is complex. 
-                # Request: "grouped bar chart where you have different shades of green"
-                # Since 'stims' is X, and we have multiple outcomes AND multiple subjects.
-                # Simple approach: Standard Grouped Bar.
-                # We will just append traces. Plotly handles grouping by X automatically.
-                # To differentiate subjects, we can use slightly different opacity or patterns,
-                # OR just rely on hover/legend. 
-                # Let's keep it simple: One trace per outcome per subject.
-                
-                # We need to make sure colors are distinct enough if we want "shades".
-                # For now, let's use the base color but maybe vary opacity or just repeat
-                # since the user asked for "different shades".
-                # A simple way to get a "shade" is to mix the base color with the subject color, 
-                # but that might be messy.
-                # Let's try standard colors for outcomes, but add subject name to trace name.
-                
-                fig_fc.add_trace(go.Bar(
+                trace = go.Bar(
                     x=sm["stims"], y=yvals, 
-                    name=f"{subj} - {outcome_name}",
-                    legendgroup=subj, # Group toggle by subject
-                    marker_color=base_color, 
-                    opacity=1.0 if i==0 else 0.6, # Make secondary subjects lighter
+                    name=outcome_name,
+                    legendgroup=outcome_name, # common group for outcomes
+                    showlegend=show_leg,
+                    marker_color=base_color,
                     hovertemplate="%{y} " + outcome_name + ht_subj,
-                ))
+                )
+                if multi_col:
+                    fig_fc.add_trace(trace, row=1, col=subj_to_no[subj])
+                else:
+                    fig_fc.add_trace(trace)
 
             # P(Right)
             fig_pr.add_trace(go.Scatter(
@@ -419,7 +423,7 @@ def create_app() -> Dash:
         
         # Row 1
         _layout(fig_fc, title="Trial Outcomes", xaxis_title="stim intensity",
-                yaxis_title="count", barmode="group") # Was stack
+                yaxis_title="count", barmode="stack")
         
         _layout(fig_pr, title="P(Right)", xaxis_title="stim intensity",
                 yaxis_title="p(right)", yaxis_range=[0, 1])
