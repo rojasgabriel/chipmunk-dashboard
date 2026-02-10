@@ -42,14 +42,27 @@ def _empty_fig(msg: str = "Select subject(s)") -> go.Figure:
 
 
 def _layout(fig: go.Figure, **kw) -> None:
-    fig.update_layout(
-        margin=_MARGIN, legend=_LEGEND, hovermode="x unified",
+    # Default layout settings
+    config = dict(
+        margin=_MARGIN,
+        legend=_LEGEND,
+        hovermode="x unified",
         font=dict(family="IBM Plex Sans, sans-serif", color=_THEME["text"], size=12),
-        title=dict(
-            font=dict(family="Space Grotesk, sans-serif", size=14, color=_THEME["text"])
-        ),
-        xaxis=_AXIS_CLEAN, yaxis=_AXIS_CLEAN, **_CLEAN, **kw,
+        xaxis=_AXIS_CLEAN,
+        yaxis=_AXIS_CLEAN,
+        **_CLEAN,
     )
+
+    # Handle title if provided (wrap in dict)
+    if "title" in kw:
+        kw["title"] = dict(
+            text=kw["title"],
+            font=dict(family="Space Grotesk, sans-serif", size=14, color=_THEME["text"]),
+        )
+
+    # Update defaults with provided kwargs
+    config.update(kw)
+    fig.update_layout(**config)
 
 
 def create_app() -> Dash:
@@ -64,32 +77,20 @@ def create_app() -> Dash:
 
     # -- helpers --------------------------------------------------------------
     def _graph(gid: str) -> dcc.Graph:
-        return html.Div(
-            dcc.Graph(
-                id=gid,
-                style={"height": "100%"},
-                config={"displayModeBar": False},
-            ),
-            style={
-                "flex": "1 1 0",
-                "minWidth": "0",
-                "maxWidth": _MAX_W,
-                "background": _THEME["card"],
-                "border": f"1px solid {_THEME['border']}",
-                "borderRadius": "10px",
-                "boxShadow": "0 6px 18px rgba(16, 24, 40, 0.06)",
-                "padding": "6px",
-            },
+        return dcc.Graph(
+            id=gid,
+            style={"height": _PLOT_H, "width": "100%"},
+            config={"displayModeBar": False},
         )
 
     def _row(*ids: str) -> html.Div:
         return html.Div(
             [_graph(i) for i in ids],
             style={
-                "display": "flex",
+                "display": "grid",
+                "gridTemplateColumns": f"repeat({len(ids)}, 1fr)",
                 "gap": "12px",
-                "height": _PLOT_H,
-                "justifyContent": "center",
+                "marginBottom": "12px",
             },
         )
 
@@ -129,63 +130,32 @@ def create_app() -> Dash:
         },
     )
 
-    # -- tab contents (both always in DOM) ------------------------------------
-    single_content = html.Div(
-        id="single-content",
-        children=[
-            _row("frac-correct", "p-right"),
-            _row("chrono", "react-times"),
-            _row("init-hist", "wait-hist"),
-            _row("wait-line", "wait-delta-hist"),
-            _row("session-perf"),
-        ],
-        style={"overflowY": "auto", "flex": 1, "padding": "12px 8px"},
-    )
-    multi_content = html.Div(
-        id="multi-content",
-        children=[
-            _row("performance", "ew-rate"),
-            _row("side-bias", "init-times"),
-            _row("median-rt", "median-wait"),
-            _row("trial-counts", "water"),
-        ],
-        style={"overflowY": "auto", "flex": 1, "padding": "12px 8px", "display": "none"},
-    )
+    # -- content sections -----------------------------------------------------
+    single_section = html.Div([
+        html.H3("Single Session", style={"margin": "24px 0 12px", "borderBottom": "1px solid #ddd"}),
+        _row("frac-correct", "p-right"),
+        _row("chrono", "react-times"),
+        _row("init-hist", "wait-hist"),
+        _row("wait-line", "wait-delta-hist"),
+        _row("session-perf"),
+    ])
 
-    _tab_base = {
-        "padding": "12px 26px",
-        "fontSize": "14px",
-        "fontWeight": "bold",
-        "cursor": "pointer",
-        "borderBottom": "3px solid transparent",
-        "background": _THEME["panel"],
-        "color": _THEME["muted"],
-    }
-    _tab_sel = {
-        **_tab_base,
-        "borderBottom": f"3px solid {_THEME['accent']}",
-        "background": _THEME["card"],
-        "color": _THEME["accent"],
-    }
-
-    tabs = dcc.Tabs(
-        id="tabs", value="single",
-        children=[
-            dcc.Tab(label="Single Session", value="single",
-                    style=_tab_base, selected_style=_tab_sel),
-            dcc.Tab(label="Multi Session", value="multi",
-                    style=_tab_base, selected_style=_tab_sel),
-        ],
-        style={"borderBottom": f"2px solid {_THEME['border']}", "marginBottom": "6px"},
-    )
+    multi_section = html.Div([
+        html.H3("Multi Session", style={"margin": "24px 0 12px", "borderBottom": "1px solid #ddd"}),
+        _row("performance", "ew-rate"),
+        _row("side-bias", "init-times"),
+        _row("median-rt", "median-wait"),
+        _row("trial-counts", "water"),
+    ])
 
     main_area = html.Div(
-        [tabs, single_content, multi_content],
+        [single_section, multi_section],
         style={
             "flex": 1,
             "display": "flex",
             "flexDirection": "column",
-            "overflow": "hidden",
+            "overflowY": "auto",
+            "padding": "0 20px 40px",
             "background": _THEME["bg"],
         },
     )
@@ -202,7 +172,7 @@ def create_app() -> Dash:
             ),
             html.Div(
                 [sidebar, main_area],
-                style={"display": "flex", "height": "calc(100vh - 56px)"},
+                style={"display": "flex", "height": "calc(100vh - 56px)", "overflow": "hidden"},
             ),
         ],
         style={
@@ -210,23 +180,12 @@ def create_app() -> Dash:
             "padding": "12px",
             "background": _THEME["bg"],
             "color": _THEME["text"],
+            "height": "100vh",
+            "overflow": "hidden"
         },
     )
 
     # -- callbacks ------------------------------------------------------------
-    # Tab visibility toggle
-    @app.callback(
-        Output("single-content", "style"),
-        Output("multi-content", "style"),
-        Input("tabs", "value"),
-    )
-    def _toggle_tabs(tab):
-        show = {"overflowY": "auto", "flex": 1, "padding": "4px 0"}
-        hide = {**show, "display": "none"}
-        if tab == "single":
-            return show, hide
-        return hide, show
-
     # Session dropdown
     @app.callback(
         Output("session", "options"),
@@ -409,9 +368,8 @@ def create_app() -> Dash:
         Output("water", "figure"),
         Input("subjects", "value"),
         Input("sessions-back", "value"),
-        Input("tabs", "value"),
     )
-    def _update_multi(subjects, sessions_back, _tab):
+    def _update_multi(subjects, sessions_back):
         n = 8
         if isinstance(subjects, str):
             subjects = [subjects]

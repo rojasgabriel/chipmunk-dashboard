@@ -6,29 +6,35 @@ from chipmunk import Chipmunk  # type: ignore
 import pandas as pd
 import numpy as np
 from functools import lru_cache
+import threading
+
+_DB_LOCK = threading.RLock()
 
 
 def get_all_subjects() -> list[str]:
     """Return sorted unique subject names from the database."""
-    subjects = DecisionTask.TrialSet().fetch("subject_name")
+    with _DB_LOCK:
+        subjects = DecisionTask.TrialSet().fetch("subject_name")
     return sorted(set(subjects))
 
 
 @lru_cache(maxsize=64)
 def get_subject_data(subject: str) -> pd.DataFrame:
     """Fetch all trial-set rows for a subject (cached in memory)."""
-    return pd.DataFrame(DecisionTask.TrialSet() & f"subject_name = '{subject}'")
+    with _DB_LOCK:
+        return pd.DataFrame(DecisionTask.TrialSet() & f"subject_name = '{subject}'")
 
 
 @lru_cache(maxsize=64)
 def get_session_trials(subject: str, session_name: str) -> pd.DataFrame:
     """Fetch per-trial Chipmunk data for a single session (cached)."""
     restriction = f"subject_name = '{subject}' AND session_name = '{session_name}'"
-    return pd.DataFrame(
-        (Chipmunk * Chipmunk.Trial * Chipmunk.TrialParameters & restriction).fetch(
-            order_by="trial_num"
+    with _DB_LOCK:
+        return pd.DataFrame(
+            (Chipmunk * Chipmunk.Trial * Chipmunk.TrialParameters & restriction).fetch(
+                order_by="trial_num"
+            )
         )
-    )
 
 
 def get_sessions(subject: str) -> list[str]:
@@ -197,7 +203,8 @@ def multisession_metrics(subject: str, sessions_back: int) -> dict | None:
     for row in d.itertuples(index=False):
         try:
             key = dict(subject_name=row.subject_name, session_name=row.session_name)
-            w = (DecisionTask * Watering & key).fetch1("water_volume")
+            with _DB_LOCK:
+                w = (DecisionTask * Watering & key).fetch1("water_volume")
             water.append(float(w))
         except Exception:
             water.append(np.nan)
