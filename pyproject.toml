@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chipmunk-dashboard"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "dash",
+    "plotly",
+    "pandas",
+    "numpy",
+]
+
+[project.scripts]
+chipmunk-dashboard = "chipmunk_dashboard.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chipmunk_dashboard"]
