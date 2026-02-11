@@ -4,8 +4,8 @@ A Plotly Dash interface for visualizing mouse behavioral data from the `chipmunk
 
 ## Prerequisites
 
-1.  **VPN**: You must be connected to the lab network/VPN to access the DataJoint database.
-2.  **Environment**: Ensure [labdata](https://pypi.org/project/labdata/) and the [chipmunk plugin](https://github.com/churchlandlab/chipmunk/tree/labdata) are installed in your Python environment.
+1. **VPN**: You must be connected to the lab network/VPN to access the DataJoint database.
+2. **Environment**: Ensure [labdata](https://pypi.org/project/labdata/) and the [chipmunk plugin](https://github.com/churchlandlab/chipmunk/tree/labdata) are installed in your Python environment.
 
 ## Installation
 
@@ -37,9 +37,11 @@ chipmunk-dashboard run --debug      # Enable hot-reloading for development
 ## Remote Access
 
 **On the remote machine**, listen on all interfaces:
+
 ```bash
 chipmunk-dashboard run --host 0.0.0.0 --port 8050
 ```
+
 **On your local machine**, browse to `http://<remote-ip-or-hostname>:8050`.
 
 ## Features
