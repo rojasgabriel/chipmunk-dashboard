@@ -14,7 +14,10 @@ import logging
 _DB_LOCK = threading.RLock()
 _CACHE_TTL_SECONDS = int(os.getenv("CHIPMUNK_CACHE_TTL_SECONDS", "1800"))
 _PROFILE_PERF = os.getenv("CHIPMUNK_PROFILE", "0") == "1"
+_PREWARM_ENABLED = os.getenv("CHIPMUNK_PREWARM", "1") == "1"
 _LOGGER = logging.getLogger(__name__)
+_PREWARM_LOCK = threading.Lock()
+_PREWARM_INFLIGHT: set[tuple[tuple[str, ...], int, str | None]] = set()
 
 
 def _perf_log(label: str, start_time: float, **fields) -> None:
@@ -139,6 +142,47 @@ def get_trials_for_sessions(
     return grouped
 
 
+@_ttl_lru_cache(maxsize=64)
+def get_wait_medians_for_sessions(
+    subject: str, session_names: tuple[str, ...]
+) -> dict[str, float]:
+    """Fetch wait-time medians per session using minimal trial columns (cached)."""
+    start = time.perf_counter()
+    if not session_names:
+        return {}
+
+    quoted = ", ".join(f"'{s}'" for s in session_names)
+    restriction = f"subject_name = '{subject}' AND session_name in ({quoted})"
+
+    with _DB_LOCK:
+        rows = (Chipmunk.Trial & restriction).fetch(
+            "session_name", "t_react", "t_stim", as_dict=True
+        )
+
+    if not rows:
+        return {}
+
+    df = pd.DataFrame(rows)
+    wait = df["t_react"].to_numpy() - df["t_stim"].to_numpy()
+    mask = np.isfinite(wait) & (wait > 0) & (wait < 30)
+    valid = df.loc[mask, ["session_name"]].copy()
+    valid["wait"] = wait[mask]
+
+    if valid.empty:
+        return {}
+
+    grouped = valid.groupby("session_name", sort=False)["wait"].median().to_dict()
+    out = {str(k): float(v) for k, v in grouped.items()}
+    _perf_log(
+        "get_wait_medians_for_sessions",
+        start,
+        subject=subject,
+        sessions=len(session_names),
+        rows=len(df),
+    )
+    return out
+
+
 def clear_data_cache() -> None:
     """Clear lru_caches to force DB refetch."""
     get_all_subjects.cache_clear()
@@ -146,9 +190,41 @@ def clear_data_cache() -> None:
     get_session_trials.cache_clear()
     get_subject_water.cache_clear()
     get_trials_for_sessions.cache_clear()
+    get_wait_medians_for_sessions.cache_clear()
     get_sessions.cache_clear()
     session_metrics.cache_clear()
     multisession_metrics.cache_clear()
+
+
+def prewarm_multisession_cache(
+    subjects: list[str], sessions_back: int = 30, start_date: str | None = None
+) -> None:
+    """Warm multisession cache in a background thread (no-op if disabled)."""
+    if not _PREWARM_ENABLED or not subjects:
+        return
+
+    key = (tuple(sorted(set(subjects))), int(sessions_back), start_date)
+    with _PREWARM_LOCK:
+        if key in _PREWARM_INFLIGHT:
+            return
+        _PREWARM_INFLIGHT.add(key)
+
+    def _worker() -> None:
+        start = time.perf_counter()
+        try:
+            for subject in key[0]:
+                multisession_metrics(subject, key[1], key[2], False, 3)
+        finally:
+            with _PREWARM_LOCK:
+                _PREWARM_INFLIGHT.discard(key)
+            _perf_log(
+                "prewarm_multisession_cache",
+                start,
+                subjects=len(key[0]),
+                sessions_back=key[1],
+            )
+
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 @_ttl_lru_cache(maxsize=64)
@@ -390,7 +466,7 @@ def multisession_metrics(
     d = df.tail(n).copy()
     d_session_names = tuple(d["session_name"].tolist())
 
-    trials_by_session = get_trials_for_sessions(subject, d_session_names)
+    wait_medians = get_wait_medians_for_sessions(subject, d_session_names)
     water_by_session = get_subject_water(subject)
 
     # Calculate X-axis (Days relative to anchor_dt)
@@ -401,52 +477,46 @@ def multisession_metrics(
     except Exception:
         x_axis = list(range(-len(d) + 1, 1))
 
-    ew_rate, side_bias, median_init, median_rt_list, median_wait_list = (
-        [],
-        [],
-        [],
-        [],
-        [],
-    )
-    for row in d.itertuples(index=False):
-        resp = np.array(row.response_values)
+    response_values = d["response_values"].tolist()
+    initiation_values = d["initiation_times"].tolist()
+    reaction_values = d["reaction_times"].tolist()
+    session_names = d["session_name"].tolist()
+
+    ew_rate: list[float] = []
+    side_bias: list[float] = []
+    for resp_vals in response_values:
+        resp = np.asarray(resp_vals)
         choice = np.isin(resp, [-1, 1])
-        ew_rate.append((~choice).sum() / resp.shape[0])
-        # Side bias: Bias Index (fraction right - 0.5)
-        if choice.sum() > 0:
-            frac = float((resp[choice] == 1).sum() / choice.sum())
+        n_choice = int(choice.sum())
+        ew_rate.append(float((~choice).sum() / resp.shape[0]) if resp.size else np.nan)
+        if n_choice > 0:
+            frac = float((resp[choice] == 1).sum() / n_choice)
             side_bias.append(frac - 0.5)
         else:
             side_bias.append(np.nan)
-        # Median initiation time
-        init = np.array(row.initiation_times)
+
+    median_init: list[float] = []
+    for init_vals in initiation_values:
+        init = np.asarray(init_vals)
         finite = init[np.isfinite(init)]
-        median_init.append(float(np.median(finite)) if len(finite) else np.nan)
-        # Median reaction time
-        if row.reaction_times is not None:
-            rt_arr = np.asarray(row.reaction_times).flatten()
-            rt_valid = rt_arr[np.isfinite(rt_arr) & (rt_arr > 0) & (rt_arr < 2)]
-            median_rt_list.append(
-                float(np.median(rt_valid)) if len(rt_valid) else np.nan
-            )
-        else:
+        median_init.append(float(np.median(finite)) if finite.size else np.nan)
+
+    median_rt_list: list[float] = []
+    for rt_vals in reaction_values:
+        if rt_vals is None:
             median_rt_list.append(np.nan)
-        # Median wait time (t_react - t_stim per trial)
-        try:
-            trials = trials_by_session.get(row.session_name)
-            if trials is not None and not trials.empty:
-                wt = trials["t_react"].to_numpy() - trials["t_stim"].to_numpy()
-                wt = wt[np.isfinite(wt) & (wt > 0) & (wt < 30)]
-                median_wait_list.append(float(np.median(wt)) if len(wt) else np.nan)
-            else:
-                median_wait_list.append(np.nan)
-        except Exception:
-            median_wait_list.append(np.nan)
+            continue
+        rt_arr = np.asarray(rt_vals).ravel()
+        rt_valid = rt_arr[np.isfinite(rt_arr) & (rt_arr > 0) & (rt_arr < 2)]
+        median_rt_list.append(float(np.median(rt_valid)) if rt_valid.size else np.nan)
+
+    median_wait_list = [
+        wait_medians.get(session_name, np.nan) for session_name in session_names
+    ]
 
     # Water earned per session (from Watering table via DecisionTask)
     water = [
-        water_by_session.get(row.session_name, np.nan)
-        for row in d.itertuples(index=False)
+        water_by_session.get(session_name, np.nan) for session_name in session_names
     ]
 
     # --- Smoothing Logic ---

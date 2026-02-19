@@ -13,6 +13,7 @@ from .data import (
     get_sessions,
     session_metrics,
     multisession_metrics,
+    prewarm_multisession_cache,
 )
 
 COLORS = px.colors.qualitative.Plotly
@@ -304,6 +305,7 @@ def create_app() -> Dash:
 
         min_d = min(dates)
         max_d = max(dates)
+        prewarm_multisession_cache(subjects, sessions_back=30, start_date=max_d)
         return max_d, min_d, max_d, max_d  # Default to latest
 
     @app.callback(
