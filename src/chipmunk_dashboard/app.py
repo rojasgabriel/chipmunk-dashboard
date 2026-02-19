@@ -716,6 +716,14 @@ def create_app() -> Dash:
         _ref_line = dict(line_dash="dash", line_color="grey", line_width=1)
 
         # Row 1
+        _fc_legend = dict(
+            visible=True,
+            orientation="h",
+            y=-0.35,
+            x=0.5,
+            xanchor="center",
+            font=dict(size=10),
+        )
         if multi_col:
             _layout(
                 fig_fc,
@@ -723,14 +731,7 @@ def create_app() -> Dash:
                 xaxis_title="count",
                 yaxis_title="",
                 barmode="stack",
-                legend=dict(
-                    visible=True,
-                    orientation="h",
-                    y=-0.2,
-                    x=0.5,
-                    xanchor="center",
-                    font=dict(size=10),
-                ),
+                legend=_fc_legend,
             )
         else:
             _layout(
@@ -739,14 +740,7 @@ def create_app() -> Dash:
                 xaxis_title="stim intensity",
                 yaxis_title="count",
                 barmode="stack",
-                legend=dict(
-                    visible=True,
-                    orientation="h",
-                    y=-0.2,
-                    x=0.5,
-                    xanchor="center",
-                    font=dict(size=10),
-                ),
+                legend=_fc_legend,
             )
 
         _layout(
