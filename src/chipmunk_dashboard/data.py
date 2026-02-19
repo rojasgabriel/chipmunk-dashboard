@@ -183,6 +183,18 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         wait_delta_x.append(int(np.mean(wait_trial_nums[start : start + win])))
         wait_delta_y.append(float(np.median(wait_delta[start : start + win])))
 
+    # Rolling EW Rate (20-trial window)
+    ew_roll_x, ew_roll_y = [], []
+    ew_raw = trials.early_withdrawal.to_numpy()  # 0 or 1
+    # We want rolling mean of this binary vector vs trial number
+    # Assuming trials are sorted by trial_num, which they are from fetch(order_by="trial_num")
+    trial_nums_all = trials.trial_num.to_numpy()
+
+    for start in range(0, len(ew_raw) - win + 1, 5):
+        block = slice(start, start + win)
+        ew_roll_x.append(int(np.mean(trial_nums_all[block])))
+        ew_roll_y.append(float(np.mean(ew_raw[block])))
+
     return dict(
         stims=ustims.tolist(),
         n_correct=n_correct,
@@ -206,30 +218,53 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         wait_trial_nums=wait_trial_nums.tolist(),
         wait_delta_x=wait_delta_x,
         wait_delta_y=wait_delta_y,
-        slide_x=slide_x,
-        slide_y=slide_y,
+        slide_x=slide_x,  # rolling performance x
+        slide_y=slide_y,  # rolling performance y
+        ew_roll_x=ew_roll_x,  # rolling EW x
+        ew_roll_y=ew_roll_y,  # rolling EW y
     )
 
 
 def multisession_metrics(
-    subject: str, sessions_back: int, anchor_session_name: str | None = None
+    subject: str,
+    sessions_back: int,
+    start_date: str | None = None,
+    smooth: bool = False,
+    smooth_window: int = 3,
 ) -> dict | None:
-    """Cross-session metrics (performance, EW rate, trial counts, etc.)."""
+    """Cross-session metrics. Dates are relative to `start_date` (default: latest)."""
     df = get_subject_data(subject)
     if df.empty:
         return None
 
-    # Handle anchor session logic
-    if anchor_session_name:
-        # Find index of the anchor session in the dataframe
-        matches = df.index[df["session_name"] == anchor_session_name].tolist()
-        if matches:
-            # Slice up to that session (inclusive)
-            idx = matches[0]
-            df = df.iloc[: idx + 1]
+    # Parse session dates for filtering
+    df["date"] = pd.to_datetime(
+        df["session_name"].str.slice(0, 8), format="%Y%m%d", errors="coerce"
+    )
 
+    # Filter by date if provided
+    if start_date:
+        anchor_dt = pd.to_datetime(start_date)
+        # Keep sessions <= start_date
+        df = df[df["date"] <= anchor_dt]
+    else:
+        # If no date provided, use the latest session date of this subject as anchor
+        if not df.empty:
+            anchor_dt = df["date"].iloc[-1]
+        else:
+            return None
+
+    # Take the last N sessions
     n = min(sessions_back, len(df))
-    d = df.tail(n)
+    d = df.tail(n).copy()
+
+    # Calculate X-axis (Days relative to anchor_dt)
+    # This aligns 0 to the shared anchor date (or this subject's latest date if none shared)
+    try:
+        days_diff = (d["date"] - anchor_dt).dt.days
+        x_axis = days_diff.tolist()
+    except Exception:
+        x_axis = list(range(-len(d) + 1, 1))
 
     ew_rate, side_bias, median_init, median_rt_list, median_wait_list = (
         [],
@@ -284,18 +319,35 @@ def multisession_metrics(
         except Exception:
             water.append(np.nan)
 
-    # Chronological X-axis: -n+1 ... 0
-    # Data is already chronological (tail(n)), do NOT reverse lists
-    x_axis = list(range(-len(d) + 1, 1))
-
-    return dict(
-        x=x_axis,
-        perf_easy=d["performance_easy"].values.tolist(),
-        ew_rate=ew_rate,
-        n_with_choice=d["n_with_choice"].values.tolist(),
-        side_bias=side_bias,
-        median_init=median_init,
-        median_rt=median_rt_list,
-        median_wait=median_wait_list,
-        water=water,
+    # --- Smoothing Logic ---
+    res = dict(
+        perf_easy=np.array(d["performance_easy"]),
+        ew_rate=np.array(ew_rate),
+        n_with_choice=np.array(d["n_with_choice"]),
+        side_bias=np.array(side_bias),
+        median_init=np.array(median_init),
+        median_rt=np.array(median_rt_list),
+        median_wait=np.array(median_wait_list),
+        water=np.array(water),
     )
+
+    if smooth and smooth_window > 1:
+        # Simple moving average, handling NaNs
+        # We can use pandas rolling on a temporary series for each metric
+        for k, v in res.items():
+            if k == "x":
+                continue  # Don't smooth the x-axis
+            s = pd.Series(v)
+            # Center=True, min_periods=1 to keep tails
+            res[k] = (
+                s.rolling(window=smooth_window, center=True, min_periods=1)
+                .mean()
+                .tolist()
+            )
+    else:
+        # Convert back to list
+        for k, v in res.items():
+            res[k] = v.tolist()
+
+    res["x"] = x_axis
+    return res

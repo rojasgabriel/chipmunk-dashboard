@@ -1,9 +1,9 @@
 """Dash application — layout and callbacks."""
 
+import numpy as np
 from typing import Any
 from dash import Dash, dcc, html, Input, Output, callback_context
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import plotly.express as px
 from .data import (
     get_all_subjects,
@@ -14,20 +14,12 @@ from .data import (
 )
 
 COLORS = px.colors.qualitative.Plotly
-_MARGIN: dict[str, int] = dict(l=50, r=20, t=42, b=40)
+_MARGIN: dict[str, int] = dict(l=50, r=20, t=42, b=80)
 _CLEAN: dict[str, Any] = dict(
     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)"
 )
 _AXIS_CLEAN = dict(showgrid=False, zeroline=False, tickfont=dict(color="#56606b"))
-_LEGEND = dict(
-    orientation="h",
-    yanchor="top",
-    y=-0.22,
-    xanchor="center",
-    x=0.5,
-    font=dict(size=10, color="#56606b"),
-    tracegroupgap=5,
-)
+_LEGEND: dict[str, Any] = dict(visible=False)
 _PLOT_H = "280px"
 _MAX_W = "560px"  # max width per plot
 _THEME = dict(
@@ -58,6 +50,11 @@ def _layout(fig: go.Figure, **kw) -> None:
     config = dict(
         margin=_MARGIN,
         legend=_LEGEND,
+        hoverlabel=dict(
+            bgcolor="rgba(255, 255, 255, 0.9)",
+            font_size=12,
+            font_family="IBM Plex Sans, sans-serif",
+        ),
         hovermode="x unified",
         font=dict(family="IBM Plex Sans, sans-serif", color=_THEME["text"], size=12),
         xaxis=_AXIS_CLEAN,
@@ -141,8 +138,33 @@ def create_app() -> Dash:
                 style={"marginTop": "8px", "width": "100%", "cursor": "pointer"},
             ),
             html.Br(),
-            html.Label("Session (first subject)", style={"fontWeight": "bold"}),
-            dcc.Dropdown(id="session", placeholder="(latest)"),
+            html.Label("Session Date", style={"fontWeight": "bold"}),
+            dcc.DatePickerSingle(
+                id="session-date",
+                display_format="YYYY-MM-DD",
+                style={"width": "100%", "marginBottom": "8px"},
+            ),
+            dcc.Dropdown(
+                id="session-time",
+                placeholder="Time (if multiple)",
+                style={"marginBottom": "8px"},
+            ),
+            html.Br(),
+            html.Label("Smooth (Multi)", style={"fontWeight": "bold"}),
+            dcc.Checklist(
+                id="smooth-metrics",
+                options=[{"label": "Enable Smoothing", "value": "smooth"}],
+                value=[],
+                style={"fontSize": "14px"},
+            ),
+            dcc.Slider(
+                id="smooth-window",
+                min=1,
+                max=10,
+                step=1,
+                value=3,
+                marks={1: "1", 3: "3", 5: "5", 10: "10"},
+            ),
             html.Br(),
             html.Label("Sessions back", style={"fontWeight": "bold"}),
             dcc.Slider(
@@ -237,24 +259,76 @@ def create_app() -> Dash:
     )
 
     # -- callbacks ------------------------------------------------------------
-    # Session dropdown
+    # Session Date & Time Logic
     @app.callback(
-        Output("session", "options"),
-        Output("session", "value"),
+        Output("session-date", "date"),
+        Output("session-date", "min_date_allowed"),
+        Output("session-date", "max_date_allowed"),
+        Output("session-date", "initial_visible_month"),
         Input("subjects", "value"),
         Input("auto-refresh", "n_intervals"),
     )
-    def _update_sessions(subjects, n_intervals):
-        # Clear cache if triggered by auto-refresh
+    def _update_date_options(subjects, n_intervals):
+        # Clear cache if triggered
         ctx = callback_context
         if ctx.triggered and "auto-refresh" in ctx.triggered[0]["prop_id"]:
             clear_data_cache()
 
         if not subjects:
-            return [], None
+            return None, None, None, None
+
         sessions = get_sessions(subjects[0])
-        opts = [{"label": s, "value": s} for s in sessions]
-        return opts, sessions[-1] if sessions else None
+        if not sessions:
+            return None, None, None, None
+
+        # Parse dates from session names (YYYYMMDD_HHMMSS)
+        dates = []
+        for s in sessions:
+            if len(s) >= 8:
+                d_str = f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+                dates.append(d_str)
+
+        if not dates:
+            return None, None, None, None
+
+        min_d = min(dates)
+        max_d = max(dates)
+        return max_d, min_d, max_d, max_d  # Default to latest
+
+    @app.callback(
+        Output("session-time", "options"),
+        Output("session-time", "value"),
+        Input("session-date", "date"),
+        Input("subjects", "value"),
+    )
+    def _update_time_options(date_val, subjects):
+        if not date_val or not subjects:
+            return [], None
+
+        sessions = get_sessions(subjects[0])
+        raw_date = date_val.replace("-", "")  # YYYY-MM-DD -> YYYYMMDD
+
+        # Filter sessions for this date
+        day_sessions = [s for s in sessions if s.startswith(raw_date)]
+
+        if not day_sessions:
+            return [], None
+
+        # Create time options (HH:MM:SS) from YYYYMMDD_HHMMSS
+        opts = []
+        for s in day_sessions:
+            if "_" in s:
+                t_str = s.split("_")[1]
+                if len(t_str) == 6:
+                    fmt = f"{t_str[:2]}:{t_str[2:4]}:{t_str[4:]}"
+                    opts.append({"label": fmt, "value": s})
+                else:
+                    opts.append({"label": s, "value": s})
+            else:
+                opts.append({"label": s, "value": s})
+
+        # Select the latest session of the day by default
+        return opts, opts[-1]["value"] if opts else None
 
     @app.callback(
         Output("subjects", "value"),
@@ -277,10 +351,10 @@ def create_app() -> Dash:
         Output("react-line", "figure"),
         Output("react-hist", "figure"),
         Input("subjects", "value"),
-        Input("session", "value"),
+        Input("session-time", "value"),
         Input("auto-refresh", "n_intervals"),
     )
-    def _update_single(subjects, session, n_intervals):
+    def _update_single(subjects, session_name, n_intervals):
         # Clear cache logic
         ctx = callback_context
         if ctx.triggered and "auto-refresh" in ctx.triggered[0]["prop_id"]:
@@ -302,32 +376,25 @@ def create_app() -> Dash:
 
         multi = len(subjects) > 1
         multi_col = len(valid_subjects) > 1
-        subj_to_no = {s: i + 1 for i, s in enumerate(valid_subjects)}
 
         # Initialize figures
-        if multi_col:
-            fig_fc = make_subplots(
-                rows=1,
-                cols=len(valid_subjects),
-                subplot_titles=valid_subjects,
-                shared_yaxes=True,
-                horizontal_spacing=0.03,
-            )
-        else:
-            fig_fc = go.Figure()
+        fig_fc = go.Figure()
 
         fig_pr, fig_ch, fig_sp = go.Figure(), go.Figure(), go.Figure()
         fig_il, fig_ih = go.Figure(), go.Figure()
         fig_wdl, fig_wdh = go.Figure(), go.Figure()
         fig_rl, fig_rh = go.Figure(), go.Figure()
 
+        # Collect outcome totals for multi-subject horizontal bars
+        multi_outcome_data = []
+
         for i, subj in enumerate(subjects):
             c = COLORS[i % len(COLORS)]
             grp = subj
             sessions_list = get_sessions(subj)
             ses = (
-                session
-                if i == 0 and session
+                session_name
+                if i == 0 and session_name
                 else (sessions_list[-1] if sessions_list else None)
             )
             if not ses:
@@ -340,31 +407,37 @@ def create_app() -> Dash:
 
             # --- Row 1: Outcomes & Performance ---
 
-            # Trial Outcomes (Stacked Bars in Subplots)
-            outcome_types = [
-                ("correct", sm["n_correct"], "mediumseagreen"),
-                ("incorrect", sm["n_incorrect"], "tomato"),
-                ("ew", sm["n_ew"], "silver"),
-                ("no choice", sm["n_no_choice"], "#333333"),
-            ]
-
-            # Only show legend entries once (for the first subject processed)
-            show_leg = i == 0
-
-            for outcome_name, yvals, base_color in outcome_types:
-                trace = go.Bar(
-                    x=sm["stims"],
-                    y=yvals,
-                    name=outcome_name,
-                    legendgroup=outcome_name,  # common group for outcomes
-                    showlegend=show_leg,
-                    marker_color=base_color,
-                    hovertemplate="%{y} " + outcome_name + ht_subj,
+            if multi_col:
+                # Collect totals for horizontal stacked bars
+                multi_outcome_data.append(
+                    dict(
+                        subject=subj,
+                        correct=sum(sm["n_correct"]),
+                        incorrect=sum(sm["n_incorrect"]),
+                        ew=sum(sm["n_ew"]),
+                        no_choice=sum(sm["n_no_choice"]),
+                    )
                 )
-                if multi_col:
-                    fig_fc.add_trace(trace, row=1, col=subj_to_no[subj])
-                else:
-                    fig_fc.add_trace(trace)
+            else:
+                # Single subject: per-stimulus vertical stacked bars
+                outcome_types = [
+                    ("correct", sm["n_correct"], "mediumseagreen"),
+                    ("incorrect", sm["n_incorrect"], "tomato"),
+                    ("ew", sm["n_ew"], "silver"),
+                    ("no choice", sm["n_no_choice"], "#333333"),
+                ]
+                for outcome_name, yvals, base_color in outcome_types:
+                    fig_fc.add_trace(
+                        go.Bar(
+                            x=sm["stims"],
+                            y=yvals,
+                            name=outcome_name,
+                            legendgroup=outcome_name,
+                            showlegend=True,
+                            marker_color=base_color,
+                            hovertemplate="%{y} " + outcome_name + ht_subj,
+                        )
+                    )
 
             # P(Right)
             fig_pr.add_trace(
@@ -407,6 +480,22 @@ def create_app() -> Dash:
                         legendgroup=grp,
                         line=dict(color=c, width=2),
                         hovertemplate="%{y:.2f}" + ht_subj,
+                    )
+                )
+
+            # Within-session EW Rate (Secondary Axis)
+            if "ew_roll_x" in sm and sm["ew_roll_x"]:
+                fig_sp.add_trace(
+                    go.Scatter(
+                        x=sm["ew_roll_x"],
+                        y=sm["ew_roll_y"],
+                        mode="lines",
+                        line=dict(color=c, width=1.5, dash="dot"),
+                        name=(subj + " ew") if multi else "ew rate",
+                        showlegend=multi,
+                        yaxis="y2",
+                        hovertemplate="ew: %{y:.2f}" + ht_subj,
+                        opacity=0.7,
                     )
                 )
 
@@ -464,6 +553,15 @@ def create_app() -> Dash:
                             opacity=0.8,
                         )
                     )
+                    # Add Median Line
+                    if sm["init_times"]:
+                        med_val = np.median(sm["init_times"])
+                        fig_ih.add_vline(
+                            x=med_val,
+                            line_dash="dash",
+                            line_color="black",
+                            line_width=1.5,
+                        )
 
             # --- Row 3: Wait Delta ---
 
@@ -519,6 +617,15 @@ def create_app() -> Dash:
                             opacity=0.8,
                         )
                     )
+                    # Add Median Line
+                    if sm["wait_delta_times"]:
+                        med_val = np.median(sm["wait_delta_times"])
+                        fig_wdh.add_vline(
+                            x=med_val,
+                            line_dash="dash",
+                            line_color="black",
+                            line_width=1.5,
+                        )
 
             # --- Row 4: Reaction Time ---
 
@@ -575,20 +682,66 @@ def create_app() -> Dash:
                         opacity=0.8,
                     )
                 )
+                # Add Median Line
+                if sm["rts"]:
+                    med_val = np.median(sm["rts"])
+                    fig_rh.add_vline(
+                        x=med_val, line_dash="dash", line_color="black", line_width=1.5
+                    )
 
         # --- Layouts ---
+
+        # Build horizontal stacked bars for multi-subject outcome view
+        if multi_col and multi_outcome_data:
+            subjects_list = [d["subject"] for d in multi_outcome_data]
+            for outcome_name, key, base_color in [
+                ("correct", "correct", "mediumseagreen"),
+                ("incorrect", "incorrect", "tomato"),
+                ("ew", "ew", "silver"),
+                ("no choice", "no_choice", "#333333"),
+            ]:
+                vals = [d[key] for d in multi_outcome_data]
+                fig_fc.add_trace(
+                    go.Bar(
+                        y=subjects_list,
+                        x=vals,
+                        name=outcome_name,
+                        orientation="h",
+                        marker_color=base_color,
+                        hovertemplate="%{x} " + outcome_name + "<extra>%{y}</extra>",
+                    )
+                )
 
         # Consistent Reference Lines
         _ref_line = dict(line_dash="dash", line_color="grey", line_width=1)
 
         # Row 1
-        _layout(
-            fig_fc,
-            title="Trial Outcomes",
-            xaxis_title="stim intensity",
-            yaxis_title="count",
-            barmode="stack",
+        _fc_legend = dict(
+            visible=True,
+            orientation="h",
+            y=-0.35,
+            x=0.5,
+            xanchor="center",
+            font=dict(size=10),
         )
+        if multi_col:
+            _layout(
+                fig_fc,
+                title="Trial Outcomes",
+                xaxis_title="count",
+                yaxis_title="",
+                barmode="stack",
+                legend=_fc_legend,
+            )
+        else:
+            _layout(
+                fig_fc,
+                title="Trial Outcomes",
+                xaxis_title="stim intensity",
+                yaxis_title="count",
+                barmode="stack",
+                legend=_fc_legend,
+            )
 
         _layout(
             fig_pr,
@@ -612,6 +765,16 @@ def create_app() -> Dash:
             xaxis_title="trial number",
             yaxis_title="correct rate",
             yaxis_range=[0, 1],
+            yaxis2=dict(
+                title="ew rate",
+                overlaying="y",
+                side="right",
+                range=[0, 1],
+                showgrid=False,
+                zeroline=False,
+                tickfont=dict(color="silver"),
+                titlefont=dict(color="silver"),
+            ),
         )
         fig_sp.add_hline(y=0.5, **_ref_line)  # Ref Line (Updated style)
 
@@ -702,10 +865,14 @@ def create_app() -> Dash:
         Output("water", "figure"),
         Input("subjects", "value"),
         Input("sessions-back", "value"),
-        Input("session", "value"),
+        Input("session-date", "date"),  # Replaces session-time for alignment anchor
+        Input("smooth-metrics", "value"),
+        Input("smooth-window", "value"),
         Input("auto-refresh", "n_intervals"),
     )
-    def _update_multi(subjects, sessions_back, session_val, n_intervals):
+    def _update_multi(
+        subjects, sessions_back, session_date, smooth_vals, smooth_window, n_intervals
+    ):
         # Clear cache logic (redundant but safe if this callback runs first)
         ctx = callback_context
         if ctx.triggered and "auto-refresh" in ctx.triggered[0]["prop_id"]:
@@ -718,6 +885,9 @@ def create_app() -> Dash:
             e = _empty_fig()
             return tuple(e for _ in range(n))
 
+        do_smooth = "smooth" in (smooth_vals or [])
+        win = smooth_window or 3
+
         fig_perf, fig_ew, fig_sb = go.Figure(), go.Figure(), go.Figure()
         fig_it, fig_mrt, fig_mwt = go.Figure(), go.Figure(), go.Figure()
         fig_tc, fig_wa = go.Figure(), go.Figure()
@@ -726,16 +896,18 @@ def create_app() -> Dash:
             c = COLORS[i % len(COLORS)]
             grp = subj
 
-            # Determine logic for anchor session.
-            # If a single subject is selected, the 'session_val' dropdown is valid for them.
-            # If multiple subjects are selected, 'session_val' only corresponds to the first subject (as per UI label).
-            # For simplicity:
-            # - If i==0 (first subject), use session_val.
-            # - If i>0, we default to None (latest), because we don't have a UI to select sessions for other subjects.
-            # Exception: if all subjects share session names (e.g. dates), we could try applying it, but safer to default to latest.
-            anchor = session_val if i == 0 else None
+            # Anchor Handling:
+            # - We use 'session_date' (YYYY-MM-DD string) as the anchor for EVERY subject.
+            # - This aligns "0" to that date for all subjects.
+            # - If date is None (startup), session_date usually defaults to latest, but we handle None.
 
-            ms = multisession_metrics(subj, sessions_back, anchor_session_name=anchor)
+            ms = multisession_metrics(
+                subj,
+                sessions_back,
+                start_date=session_date,  # Passing date string directly
+                smooth=do_smooth,
+                smooth_window=win,
+            )
             if not ms:
                 continue
             ht = "%{y:.2f}<extra>" + subj + "</extra>"
@@ -849,7 +1021,7 @@ def create_app() -> Dash:
 
         _ref_line = dict(line_dash="dash", line_color="grey", line_width=1)
 
-        _ms = dict(dtick=1, showgrid=False, zeroline=False)
+        _ms = dict(dtick=5, showgrid=False, zeroline=False)
         _layout(
             fig_perf,
             title="Performance (easy)",
