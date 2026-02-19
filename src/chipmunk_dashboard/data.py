@@ -5,11 +5,53 @@ from chipmunk import Chipmunk  # type: ignore
 import pandas as pd
 import numpy as np
 from functools import lru_cache
+from functools import wraps
 import threading
+import time
+import os
+import logging
 
 _DB_LOCK = threading.RLock()
+_CACHE_TTL_SECONDS = int(os.getenv("CHIPMUNK_CACHE_TTL_SECONDS", "1800"))
+_PROFILE_PERF = os.getenv("CHIPMUNK_PROFILE", "0") == "1"
+_PREWARM_ENABLED = os.getenv("CHIPMUNK_PREWARM", "1") == "1"
+_LOGGER = logging.getLogger(__name__)
+_PREWARM_LOCK = threading.Lock()
+_PREWARM_INFLIGHT: set[tuple[tuple[str, ...], int, str | None]] = set()
 
 
+def _perf_log(label: str, start_time: float, **fields) -> None:
+    if not _PROFILE_PERF:
+        return
+
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+    details = " ".join(f"{k}={v}" for k, v in fields.items())
+    msg = f"perf {label} elapsed_ms={elapsed_ms:.1f}"
+    if details:
+        msg = f"{msg} {details}"
+    _LOGGER.info(msg)
+
+
+def _ttl_lru_cache(maxsize: int = 128, ttl_seconds: int = _CACHE_TTL_SECONDS):
+    """lru_cache with time-bucketed invalidation."""
+
+    def decorator(func):
+        @lru_cache(maxsize=maxsize)
+        def _cached(*args, __ttl_bucket: int, **kwargs):
+            return func(*args, **kwargs)
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            ttl_bucket = int(time.time() // ttl_seconds)
+            return _cached(*args, __ttl_bucket=ttl_bucket, **kwargs)
+
+        wrapper.cache_clear = _cached.cache_clear
+        return wrapper
+
+    return decorator
+
+
+@_ttl_lru_cache(maxsize=1)
 def get_all_subjects() -> list[str]:
     """Return sorted unique subject names from the database."""
     with _DB_LOCK:
@@ -17,14 +59,33 @@ def get_all_subjects() -> list[str]:
     return sorted(set(subjects))
 
 
-@lru_cache(maxsize=64)
+@_ttl_lru_cache(maxsize=64)
 def get_subject_data(subject: str) -> pd.DataFrame:
     """Fetch all trial-set rows for a subject (cached in memory)."""
+    start = time.perf_counter()
+    fields = [
+        "subject_name",
+        "session_name",
+        "performance_easy",
+        "n_with_choice",
+        "response_values",
+        "initiation_times",
+        "reaction_times",
+    ]
     with _DB_LOCK:
-        return pd.DataFrame(DecisionTask.TrialSet() & f"subject_name = '{subject}'")
+        rel = DecisionTask.TrialSet() & f"subject_name = '{subject}'"
+        try:
+            rows = rel.fetch(*fields, order_by="session_name", as_dict=True)
+            df = pd.DataFrame(rows)
+            _perf_log("get_subject_data", start, subject=subject, rows=len(df))
+            return df
+        except Exception:
+            df = pd.DataFrame(rel)
+            _perf_log("get_subject_data_fallback", start, subject=subject, rows=len(df))
+            return df
 
 
-@lru_cache(maxsize=64)
+@_ttl_lru_cache(maxsize=64)
 def get_session_trials(subject: str, session_name: str) -> pd.DataFrame:
     """Fetch per-trial Chipmunk data for a single session (cached)."""
     restriction = f"subject_name = '{subject}' AND session_name = '{session_name}'"
@@ -36,16 +97,144 @@ def get_session_trials(subject: str, session_name: str) -> pd.DataFrame:
         )
 
 
+@_ttl_lru_cache(maxsize=64)
+def get_subject_water(subject: str) -> dict[str, float]:
+    """Fetch water volumes for all sessions of a subject (cached)."""
+    with _DB_LOCK:
+        rows = (DecisionTask * Watering & f"subject_name = '{subject}'").fetch(
+            "session_name", "water_volume", as_dict=True
+        )
+    return {row["session_name"]: float(row["water_volume"]) for row in rows}
+
+
+@_ttl_lru_cache(maxsize=64)
+def get_trials_for_sessions(
+    subject: str, session_names: tuple[str, ...]
+) -> dict[str, pd.DataFrame]:
+    """Fetch per-trial data for many sessions with a single DB query (cached)."""
+    start = time.perf_counter()
+    if not session_names:
+        return {}
+
+    quoted = ", ".join(f"'{s}'" for s in session_names)
+    restriction = f"subject_name = '{subject}' AND session_name in ({quoted})"
+
+    with _DB_LOCK:
+        df = pd.DataFrame(
+            (Chipmunk * Chipmunk.Trial * Chipmunk.TrialParameters & restriction).fetch(
+                order_by="session_name, trial_num"
+            )
+        )
+
+    if df.empty:
+        return {}
+
+    grouped: dict[str, pd.DataFrame] = {}
+    for session, session_df in df.groupby("session_name", sort=False):
+        grouped[str(session)] = session_df.reset_index(drop=True)
+    _perf_log(
+        "get_trials_for_sessions",
+        start,
+        subject=subject,
+        sessions=len(session_names),
+        rows=len(df),
+    )
+    return grouped
+
+
+@_ttl_lru_cache(maxsize=64)
+def get_wait_medians_for_sessions(
+    subject: str, session_names: tuple[str, ...]
+) -> dict[str, float]:
+    """Fetch wait-time medians per session using minimal trial columns (cached)."""
+    start = time.perf_counter()
+    if not session_names:
+        return {}
+
+    quoted = ", ".join(f"'{s}'" for s in session_names)
+    restriction = f"subject_name = '{subject}' AND session_name in ({quoted})"
+
+    with _DB_LOCK:
+        rows = (Chipmunk.Trial & restriction).fetch(
+            "session_name", "t_react", "t_stim", as_dict=True
+        )
+
+    if not rows:
+        return {}
+
+    df = pd.DataFrame(rows)
+    wait = df["t_react"].to_numpy() - df["t_stim"].to_numpy()
+    mask = np.isfinite(wait) & (wait > 0) & (wait < 30)
+    valid = df.loc[mask, ["session_name"]].copy()
+    valid["wait"] = wait[mask]
+
+    if valid.empty:
+        return {}
+
+    grouped = valid.groupby("session_name", sort=False)["wait"].median().to_dict()
+    out = {str(k): float(v) for k, v in grouped.items()}
+    _perf_log(
+        "get_wait_medians_for_sessions",
+        start,
+        subject=subject,
+        sessions=len(session_names),
+        rows=len(df),
+    )
+    return out
+
+
 def clear_data_cache() -> None:
     """Clear lru_caches to force DB refetch."""
+    get_all_subjects.cache_clear()
     get_subject_data.cache_clear()
     get_session_trials.cache_clear()
+    get_subject_water.cache_clear()
+    get_trials_for_sessions.cache_clear()
+    get_wait_medians_for_sessions.cache_clear()
+    get_sessions.cache_clear()
+    session_metrics.cache_clear()
+    multisession_metrics.cache_clear()
 
 
+def prewarm_multisession_cache(
+    subjects: list[str], sessions_back: int = 30, start_date: str | None = None
+) -> None:
+    """Warm multisession cache in a background thread (no-op if disabled)."""
+    if not _PREWARM_ENABLED or not subjects:
+        return
+
+    key = (tuple(sorted(set(subjects))), int(sessions_back), start_date)
+    with _PREWARM_LOCK:
+        if key in _PREWARM_INFLIGHT:
+            return
+        _PREWARM_INFLIGHT.add(key)
+
+    def _worker() -> None:
+        start = time.perf_counter()
+        try:
+            for subject in key[0]:
+                multisession_metrics(subject, key[1], key[2], False, 3)
+        finally:
+            with _PREWARM_LOCK:
+                _PREWARM_INFLIGHT.discard(key)
+            _perf_log(
+                "prewarm_multisession_cache",
+                start,
+                subjects=len(key[0]),
+                sessions_back=key[1],
+            )
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+@_ttl_lru_cache(maxsize=64)
 def get_sessions(subject: str) -> list[str]:
     """Return session names for a subject (chronological order)."""
-    df = get_subject_data(subject)
-    return df["session_name"].tolist() if not df.empty else []
+    with _DB_LOCK:
+        sessions = (DecisionTask.TrialSet() & f"subject_name = '{subject}'").fetch(
+            "session_name", order_by="session_name"
+        )
+    return list(sessions)
 
 
 def _compute_intensity(trials: pd.DataFrame) -> np.ndarray:
@@ -65,10 +254,15 @@ def _compute_intensity(trials: pd.DataFrame) -> np.ndarray:
     return intensity
 
 
+@_ttl_lru_cache(maxsize=256)
 def session_metrics(subject: str, session_name: str) -> dict | None:
     """Per-stimulus metrics for a single session, using Chipmunk.Trial directly."""
+    start = time.perf_counter()
     trials = get_session_trials(subject, session_name)
     if trials.empty:
+        _perf_log(
+            "session_metrics", start, subject=subject, session=session_name, rows=0
+        )
         return None
 
     intensity = _compute_intensity(trials)
@@ -191,11 +385,10 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     trial_nums_all = trials.trial_num.to_numpy()
 
     for start in range(0, len(ew_raw) - win + 1, 5):
-        block = slice(start, start + win)
-        ew_roll_x.append(int(np.mean(trial_nums_all[block])))
-        ew_roll_y.append(float(np.mean(ew_raw[block])))
+        ew_roll_x.append(int(np.mean(trial_nums_all[start : start + win])))
+        ew_roll_y.append(float(np.mean(ew_raw[start : start + win])))
 
-    return dict(
+    out = dict(
         stims=ustims.tolist(),
         n_correct=n_correct,
         n_incorrect=n_incorrect,
@@ -223,8 +416,17 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         ew_roll_x=ew_roll_x,  # rolling EW x
         ew_roll_y=ew_roll_y,  # rolling EW y
     )
+    _perf_log(
+        "session_metrics",
+        start,
+        subject=subject,
+        session=session_name,
+        rows=len(trials),
+    )
+    return out
 
 
+@_ttl_lru_cache(maxsize=256)
 def multisession_metrics(
     subject: str,
     sessions_back: int,
@@ -233,9 +435,13 @@ def multisession_metrics(
     smooth_window: int = 3,
 ) -> dict | None:
     """Cross-session metrics. Dates are relative to `start_date` (default: latest)."""
-    df = get_subject_data(subject)
+    start = time.perf_counter()
+    df = get_subject_data(subject).copy()
     if df.empty:
+        _perf_log("multisession_metrics", start, subject=subject, sessions=0)
         return None
+
+    df = df.sort_values("session_name")
 
     # Parse session dates for filtering
     df["date"] = pd.to_datetime(
@@ -252,11 +458,16 @@ def multisession_metrics(
         if not df.empty:
             anchor_dt = df["date"].iloc[-1]
         else:
+            _perf_log("multisession_metrics", start, subject=subject, sessions=0)
             return None
 
     # Take the last N sessions
     n = min(sessions_back, len(df))
     d = df.tail(n).copy()
+    d_session_names = tuple(d["session_name"].tolist())
+
+    wait_medians = get_wait_medians_for_sessions(subject, d_session_names)
+    water_by_session = get_subject_water(subject)
 
     # Calculate X-axis (Days relative to anchor_dt)
     # This aligns 0 to the shared anchor date (or this subject's latest date if none shared)
@@ -266,58 +477,47 @@ def multisession_metrics(
     except Exception:
         x_axis = list(range(-len(d) + 1, 1))
 
-    ew_rate, side_bias, median_init, median_rt_list, median_wait_list = (
-        [],
-        [],
-        [],
-        [],
-        [],
-    )
-    for row in d.itertuples(index=False):
-        resp = np.array(row.response_values)
+    response_values = d["response_values"].tolist()
+    initiation_values = d["initiation_times"].tolist()
+    reaction_values = d["reaction_times"].tolist()
+    session_names = d["session_name"].tolist()
+
+    ew_rate: list[float] = []
+    side_bias: list[float] = []
+    for resp_vals in response_values:
+        resp = np.asarray(resp_vals)
         choice = np.isin(resp, [-1, 1])
-        ew_rate.append((~choice).sum() / resp.shape[0])
-        # Side bias: Bias Index (fraction right - 0.5)
-        if choice.sum() > 0:
-            frac = float((resp[choice] == 1).sum() / choice.sum())
+        n_choice = int(choice.sum())
+        ew_rate.append(float((~choice).sum() / resp.shape[0]) if resp.size else np.nan)
+        if n_choice > 0:
+            frac = float((resp[choice] == 1).sum() / n_choice)
             side_bias.append(frac - 0.5)
         else:
             side_bias.append(np.nan)
-        # Median initiation time
-        init = np.array(row.initiation_times)
+
+    median_init: list[float] = []
+    for init_vals in initiation_values:
+        init = np.asarray(init_vals)
         finite = init[np.isfinite(init)]
-        median_init.append(float(np.median(finite)) if len(finite) else np.nan)
-        # Median reaction time
-        if row.reaction_times is not None:
-            rt_arr = np.asarray(row.reaction_times).flatten()
-            rt_valid = rt_arr[np.isfinite(rt_arr) & (rt_arr > 0) & (rt_arr < 2)]
-            median_rt_list.append(
-                float(np.median(rt_valid)) if len(rt_valid) else np.nan
-            )
-        else:
+        median_init.append(float(np.median(finite)) if finite.size else np.nan)
+
+    median_rt_list: list[float] = []
+    for rt_vals in reaction_values:
+        if rt_vals is None:
             median_rt_list.append(np.nan)
-        # Median wait time (t_react - t_stim per trial)
-        try:
-            trials = get_session_trials(row.subject_name, row.session_name)
-            if not trials.empty:
-                wt = trials["t_react"].to_numpy() - trials["t_stim"].to_numpy()
-                wt = wt[np.isfinite(wt) & (wt > 0) & (wt < 30)]
-                median_wait_list.append(float(np.median(wt)) if len(wt) else np.nan)
-            else:
-                median_wait_list.append(np.nan)
-        except Exception:
-            median_wait_list.append(np.nan)
+            continue
+        rt_arr = np.asarray(rt_vals).ravel()
+        rt_valid = rt_arr[np.isfinite(rt_arr) & (rt_arr > 0) & (rt_arr < 2)]
+        median_rt_list.append(float(np.median(rt_valid)) if rt_valid.size else np.nan)
+
+    median_wait_list = [
+        wait_medians.get(session_name, np.nan) for session_name in session_names
+    ]
 
     # Water earned per session (from Watering table via DecisionTask)
-    water = []
-    for row in d.itertuples(index=False):
-        try:
-            key = dict(subject_name=row.subject_name, session_name=row.session_name)
-            with _DB_LOCK:
-                w = (DecisionTask * Watering & key).fetch1("water_volume")
-            water.append(float(w))
-        except Exception:
-            water.append(np.nan)
+    water = [
+        water_by_session.get(session_name, np.nan) for session_name in session_names
+    ]
 
     # --- Smoothing Logic ---
     res = dict(
@@ -331,15 +531,14 @@ def multisession_metrics(
         water=np.array(water),
     )
 
+    out: dict[str, list[float]] = {}
     if smooth and smooth_window > 1:
         # Simple moving average, handling NaNs
         # We can use pandas rolling on a temporary series for each metric
         for k, v in res.items():
-            if k == "x":
-                continue  # Don't smooth the x-axis
             s = pd.Series(v)
             # Center=True, min_periods=1 to keep tails
-            res[k] = (
+            out[k] = (
                 s.rolling(window=smooth_window, center=True, min_periods=1)
                 .mean()
                 .tolist()
@@ -347,7 +546,15 @@ def multisession_metrics(
     else:
         # Convert back to list
         for k, v in res.items():
-            res[k] = v.tolist()
+            out[k] = np.asarray(v).tolist()
 
-    res["x"] = x_axis
-    return res
+    out["x"] = x_axis
+    _perf_log(
+        "multisession_metrics",
+        start,
+        subject=subject,
+        sessions=len(d),
+        smooth=smooth,
+        smooth_window=smooth_window,
+    )
+    return out
