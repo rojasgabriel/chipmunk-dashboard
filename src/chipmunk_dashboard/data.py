@@ -266,7 +266,7 @@ def multisession_metrics(
             trials = get_session_trials(row.subject_name, row.session_name)
             if not trials.empty:
                 wt = trials["t_react"].to_numpy() - trials["t_stim"].to_numpy()
-                wt = wt[np.isfinite(wt) & (wt > 0) & (wt < 60)]
+                wt = wt[np.isfinite(wt) & (wt > 0) & (wt < 30)]
                 median_wait_list.append(float(np.median(wt)) if len(wt) else np.nan)
             else:
                 median_wait_list.append(np.nan)
