@@ -183,6 +183,18 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         wait_delta_x.append(int(np.mean(wait_trial_nums[start : start + win])))
         wait_delta_y.append(float(np.median(wait_delta[start : start + win])))
 
+    # Rolling EW Rate (20-trial window)
+    ew_roll_x, ew_roll_y = [], []
+    ew_raw = trials.early_withdrawal.to_numpy()  # 0 or 1
+    # We want rolling mean of this binary vector vs trial number
+    # Assuming trials are sorted by trial_num, which they are from fetch(order_by="trial_num")
+    trial_nums_all = trials.trial_num.to_numpy()
+
+    for start in range(0, len(ew_raw) - win + 1, 5):
+        block = slice(start, start + win)
+        ew_roll_x.append(int(np.mean(trial_nums_all[block])))
+        ew_roll_y.append(float(np.mean(ew_raw[block])))
+
     return dict(
         stims=ustims.tolist(),
         n_correct=n_correct,
@@ -206,8 +218,10 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         wait_trial_nums=wait_trial_nums.tolist(),
         wait_delta_x=wait_delta_x,
         wait_delta_y=wait_delta_y,
-        slide_x=slide_x,
-        slide_y=slide_y,
+        slide_x=slide_x,  # rolling performance x
+        slide_y=slide_y,  # rolling performance y
+        ew_roll_x=ew_roll_x,  # rolling EW x
+        ew_roll_y=ew_roll_y,  # rolling EW y
     )
 
 

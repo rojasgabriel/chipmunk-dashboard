@@ -1,5 +1,6 @@
 """Dash application — layout and callbacks."""
 
+import numpy as np
 from typing import Any
 from dash import Dash, dcc, html, Input, Output, callback_context
 import plotly.graph_objects as go
@@ -58,6 +59,11 @@ def _layout(fig: go.Figure, **kw) -> None:
     config = dict(
         margin=_MARGIN,
         legend=_LEGEND,
+        hoverlabel=dict(
+            bgcolor="rgba(255, 255, 255, 0.9)",
+            font_size=12,
+            font_family="IBM Plex Sans, sans-serif",
+        ),
         hovermode="x unified",
         font=dict(family="IBM Plex Sans, sans-serif", color=_THEME["text"], size=12),
         xaxis=_AXIS_CLEAN,
@@ -410,6 +416,22 @@ def create_app() -> Dash:
                     )
                 )
 
+            # Within-session EW Rate (Secondary Axis)
+            if "ew_roll_x" in sm and sm["ew_roll_x"]:
+                fig_sp.add_trace(
+                    go.Scatter(
+                        x=sm["ew_roll_x"],
+                        y=sm["ew_roll_y"],
+                        mode="lines",
+                        line=dict(color=c, width=1.5, dash="dot"),
+                        name=(subj + " ew") if multi else "ew rate",
+                        showlegend=multi,
+                        yaxis="y2",
+                        hovertemplate="ew: %{y:.2f}" + ht_subj,
+                        opacity=0.7,
+                    )
+                )
+
             # --- Row 2: Initiation ---
 
             if sm["init_trial_nums"] and sm["init_times"]:
@@ -464,6 +486,15 @@ def create_app() -> Dash:
                             opacity=0.8,
                         )
                     )
+                    # Add Median Line
+                    if sm["init_times"]:
+                        med_val = np.median(sm["init_times"])
+                        fig_ih.add_vline(
+                            x=med_val,
+                            line_dash="dash",
+                            line_color="black",
+                            line_width=1.5,
+                        )
 
             # --- Row 3: Wait Delta ---
 
@@ -519,6 +550,15 @@ def create_app() -> Dash:
                             opacity=0.8,
                         )
                     )
+                    # Add Median Line
+                    if sm["wait_delta_times"]:
+                        med_val = np.median(sm["wait_delta_times"])
+                        fig_wdh.add_vline(
+                            x=med_val,
+                            line_dash="dash",
+                            line_color="black",
+                            line_width=1.5,
+                        )
 
             # --- Row 4: Reaction Time ---
 
@@ -575,6 +615,12 @@ def create_app() -> Dash:
                         opacity=0.8,
                     )
                 )
+                # Add Median Line
+                if sm["rts"]:
+                    med_val = np.median(sm["rts"])
+                    fig_rh.add_vline(
+                        x=med_val, line_dash="dash", line_color="black", line_width=1.5
+                    )
 
         # --- Layouts ---
 
@@ -612,6 +658,16 @@ def create_app() -> Dash:
             xaxis_title="trial number",
             yaxis_title="correct rate",
             yaxis_range=[0, 1],
+            yaxis2=dict(
+                title="ew rate",
+                overlaying="y",
+                side="right",
+                range=[0, 1],
+                showgrid=False,
+                zeroline=False,
+                tickfont=dict(color="silver"),
+                titlefont=dict(color="silver"),
+            ),
         )
         fig_sp.add_hline(y=0.5, **_ref_line)  # Ref Line (Updated style)
 
