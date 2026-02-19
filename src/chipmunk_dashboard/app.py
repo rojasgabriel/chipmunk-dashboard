@@ -159,6 +159,22 @@ def create_app() -> Dash:
                 style={"marginBottom": "8px"},
             ),
             html.Br(),
+            html.Label("Smooth (Multi)", style={"fontWeight": "bold"}),
+            dcc.Checklist(
+                id="smooth-metrics",
+                options=[{"label": "Enable Smoothing", "value": "smooth"}],
+                value=[],
+                style={"fontSize": "14px"},
+            ),
+            dcc.Slider(
+                id="smooth-window",
+                min=1,
+                max=10,
+                step=1,
+                value=3,
+                marks={1: "1", 3: "3", 5: "5", 10: "10"},
+            ),
+            html.Br(),
             html.Label("Sessions back", style={"fontWeight": "bold"}),
             dcc.Slider(
                 id="sessions-back",
@@ -819,10 +835,14 @@ def create_app() -> Dash:
         Output("water", "figure"),
         Input("subjects", "value"),
         Input("sessions-back", "value"),
-        Input("session-time", "value"),
+        Input("session-date", "date"),  # Replaces session-time for alignment anchor
+        Input("smooth-metrics", "value"),
+        Input("smooth-window", "value"),
         Input("auto-refresh", "n_intervals"),
     )
-    def _update_multi(subjects, sessions_back, session_val, n_intervals):
+    def _update_multi(
+        subjects, sessions_back, session_date, smooth_vals, smooth_window, n_intervals
+    ):
         # Clear cache logic (redundant but safe if this callback runs first)
         ctx = callback_context
         if ctx.triggered and "auto-refresh" in ctx.triggered[0]["prop_id"]:
@@ -835,6 +855,9 @@ def create_app() -> Dash:
             e = _empty_fig()
             return tuple(e for _ in range(n))
 
+        do_smooth = "smooth" in (smooth_vals or [])
+        win = smooth_window or 3
+
         fig_perf, fig_ew, fig_sb = go.Figure(), go.Figure(), go.Figure()
         fig_it, fig_mrt, fig_mwt = go.Figure(), go.Figure(), go.Figure()
         fig_tc, fig_wa = go.Figure(), go.Figure()
@@ -843,16 +866,18 @@ def create_app() -> Dash:
             c = COLORS[i % len(COLORS)]
             grp = subj
 
-            # Determine logic for anchor session.
-            # If a single subject is selected, the 'session_val' dropdown is valid for them.
-            # If multiple subjects are selected, 'session_val' only corresponds to the first subject (as per UI label).
-            # For simplicity:
-            # - If i==0 (first subject), use session_val.
-            # - If i>0, we default to None (latest), because we don't have a UI to select sessions for other subjects.
-            # Exception: if all subjects share session names (e.g. dates), we could try applying it, but safer to default to latest.
-            anchor = session_val if i == 0 else None
+            # Anchor Handling:
+            # - We use 'session_date' (YYYY-MM-DD string) as the anchor for EVERY subject.
+            # - This aligns "0" to that date for all subjects.
+            # - If date is None (startup), session_date usually defaults to latest, but we handle None.
 
-            ms = multisession_metrics(subj, sessions_back, anchor_session_name=anchor)
+            ms = multisession_metrics(
+                subj,
+                sessions_back,
+                start_date=session_date,  # Passing date string directly
+                smooth=do_smooth,
+                smooth_window=win,
+            )
             if not ms:
                 continue
             ht = "%{y:.2f}<extra>" + subj + "</extra>"
