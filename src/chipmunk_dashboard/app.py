@@ -4,7 +4,6 @@ import numpy as np
 from typing import Any
 from dash import Dash, dcc, html, Input, Output, callback_context
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import plotly.express as px
 from .data import (
     get_all_subjects,
@@ -377,24 +376,17 @@ def create_app() -> Dash:
 
         multi = len(subjects) > 1
         multi_col = len(valid_subjects) > 1
-        subj_to_no = {s: i + 1 for i, s in enumerate(valid_subjects)}
 
         # Initialize figures
-        if multi_col:
-            fig_fc = make_subplots(
-                rows=1,
-                cols=len(valid_subjects),
-                subplot_titles=valid_subjects,
-                shared_yaxes=True,
-                horizontal_spacing=0.03,
-            )
-        else:
-            fig_fc = go.Figure()
+        fig_fc = go.Figure()
 
         fig_pr, fig_ch, fig_sp = go.Figure(), go.Figure(), go.Figure()
         fig_il, fig_ih = go.Figure(), go.Figure()
         fig_wdl, fig_wdh = go.Figure(), go.Figure()
         fig_rl, fig_rh = go.Figure(), go.Figure()
+
+        # Collect outcome totals for multi-subject horizontal bars
+        multi_outcome_data = []
 
         for i, subj in enumerate(subjects):
             c = COLORS[i % len(COLORS)]
@@ -415,31 +407,37 @@ def create_app() -> Dash:
 
             # --- Row 1: Outcomes & Performance ---
 
-            # Trial Outcomes (Stacked Bars in Subplots)
-            outcome_types = [
-                ("correct", sm["n_correct"], "mediumseagreen"),
-                ("incorrect", sm["n_incorrect"], "tomato"),
-                ("ew", sm["n_ew"], "silver"),
-                ("no choice", sm["n_no_choice"], "#333333"),
-            ]
-
-            # Only show legend entries once (for the first subject processed)
-            show_leg = i == 0
-
-            for outcome_name, yvals, base_color in outcome_types:
-                trace = go.Bar(
-                    x=sm["stims"],
-                    y=yvals,
-                    name=outcome_name,
-                    legendgroup=outcome_name,  # common group for outcomes
-                    showlegend=show_leg,
-                    marker_color=base_color,
-                    hovertemplate="%{y} " + outcome_name + ht_subj,
+            if multi_col:
+                # Collect totals for horizontal stacked bars
+                multi_outcome_data.append(
+                    dict(
+                        subject=subj,
+                        correct=sum(sm["n_correct"]),
+                        incorrect=sum(sm["n_incorrect"]),
+                        ew=sum(sm["n_ew"]),
+                        no_choice=sum(sm["n_no_choice"]),
+                    )
                 )
-                if multi_col:
-                    fig_fc.add_trace(trace, row=1, col=subj_to_no[subj])
-                else:
-                    fig_fc.add_trace(trace)
+            else:
+                # Single subject: per-stimulus vertical stacked bars
+                outcome_types = [
+                    ("correct", sm["n_correct"], "mediumseagreen"),
+                    ("incorrect", sm["n_incorrect"], "tomato"),
+                    ("ew", sm["n_ew"], "silver"),
+                    ("no choice", sm["n_no_choice"], "#333333"),
+                ]
+                for outcome_name, yvals, base_color in outcome_types:
+                    fig_fc.add_trace(
+                        go.Bar(
+                            x=sm["stims"],
+                            y=yvals,
+                            name=outcome_name,
+                            legendgroup=outcome_name,
+                            showlegend=True,
+                            marker_color=base_color,
+                            hovertemplate="%{y} " + outcome_name + ht_subj,
+                        )
+                    )
 
             # P(Right)
             fig_pr.add_trace(
@@ -693,17 +691,63 @@ def create_app() -> Dash:
 
         # --- Layouts ---
 
+        # Build horizontal stacked bars for multi-subject outcome view
+        if multi_col and multi_outcome_data:
+            subjects_list = [d["subject"] for d in multi_outcome_data]
+            for outcome_name, key, base_color in [
+                ("correct", "correct", "mediumseagreen"),
+                ("incorrect", "incorrect", "tomato"),
+                ("ew", "ew", "silver"),
+                ("no choice", "no_choice", "#333333"),
+            ]:
+                vals = [d[key] for d in multi_outcome_data]
+                fig_fc.add_trace(
+                    go.Bar(
+                        y=subjects_list,
+                        x=vals,
+                        name=outcome_name,
+                        orientation="h",
+                        marker_color=base_color,
+                        hovertemplate="%{x} " + outcome_name + "<extra>%{y}</extra>",
+                    )
+                )
+
         # Consistent Reference Lines
         _ref_line = dict(line_dash="dash", line_color="grey", line_width=1)
 
         # Row 1
-        _layout(
-            fig_fc,
-            title="Trial Outcomes",
-            xaxis_title="stim intensity",
-            yaxis_title="count",
-            barmode="stack",
-        )
+        if multi_col:
+            _layout(
+                fig_fc,
+                title="Trial Outcomes",
+                xaxis_title="count",
+                yaxis_title="",
+                barmode="stack",
+                legend=dict(
+                    visible=True,
+                    orientation="h",
+                    y=-0.2,
+                    x=0.5,
+                    xanchor="center",
+                    font=dict(size=10),
+                ),
+            )
+        else:
+            _layout(
+                fig_fc,
+                title="Trial Outcomes",
+                xaxis_title="stim intensity",
+                yaxis_title="count",
+                barmode="stack",
+                legend=dict(
+                    visible=True,
+                    orientation="h",
+                    y=-0.2,
+                    x=0.5,
+                    xanchor="center",
+                    font=dict(size=10),
+                ),
+            )
 
         _layout(
             fig_pr,
