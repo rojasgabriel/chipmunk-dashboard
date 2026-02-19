@@ -5,11 +5,35 @@ from chipmunk import Chipmunk  # type: ignore
 import pandas as pd
 import numpy as np
 from functools import lru_cache
+from functools import wraps
 import threading
+import time
+import os
 
 _DB_LOCK = threading.RLock()
+_CACHE_TTL_SECONDS = int(os.getenv("CHIPMUNK_CACHE_TTL_SECONDS", "1800"))
 
 
+def _ttl_lru_cache(maxsize: int = 128, ttl_seconds: int = _CACHE_TTL_SECONDS):
+    """lru_cache with time-bucketed invalidation."""
+
+    def decorator(func):
+        @lru_cache(maxsize=maxsize)
+        def _cached(*args, __ttl_bucket: int, **kwargs):
+            return func(*args, **kwargs)
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            ttl_bucket = int(time.time() // ttl_seconds)
+            return _cached(*args, __ttl_bucket=ttl_bucket, **kwargs)
+
+        wrapper.cache_clear = _cached.cache_clear
+        return wrapper
+
+    return decorator
+
+
+@_ttl_lru_cache(maxsize=1)
 def get_all_subjects() -> list[str]:
     """Return sorted unique subject names from the database."""
     with _DB_LOCK:
@@ -17,14 +41,28 @@ def get_all_subjects() -> list[str]:
     return sorted(set(subjects))
 
 
-@lru_cache(maxsize=64)
+@_ttl_lru_cache(maxsize=64)
 def get_subject_data(subject: str) -> pd.DataFrame:
     """Fetch all trial-set rows for a subject (cached in memory)."""
+    fields = [
+        "subject_name",
+        "session_name",
+        "performance_easy",
+        "n_with_choice",
+        "response_values",
+        "initiation_times",
+        "reaction_times",
+    ]
     with _DB_LOCK:
-        return pd.DataFrame(DecisionTask.TrialSet() & f"subject_name = '{subject}'")
+        rel = DecisionTask.TrialSet() & f"subject_name = '{subject}'"
+        try:
+            rows = rel.fetch(*fields, order_by="session_name", as_dict=True)
+            return pd.DataFrame(rows)
+        except Exception:
+            return pd.DataFrame(rel)
 
 
-@lru_cache(maxsize=64)
+@_ttl_lru_cache(maxsize=64)
 def get_session_trials(subject: str, session_name: str) -> pd.DataFrame:
     """Fetch per-trial Chipmunk data for a single session (cached)."""
     restriction = f"subject_name = '{subject}' AND session_name = '{session_name}'"
@@ -36,16 +74,63 @@ def get_session_trials(subject: str, session_name: str) -> pd.DataFrame:
         )
 
 
+@_ttl_lru_cache(maxsize=64)
+def get_subject_water(subject: str) -> dict[str, float]:
+    """Fetch water volumes for all sessions of a subject (cached)."""
+    with _DB_LOCK:
+        rows = (DecisionTask * Watering & f"subject_name = '{subject}'").fetch(
+            "session_name", "water_volume", as_dict=True
+        )
+    return {row["session_name"]: float(row["water_volume"]) for row in rows}
+
+
+@_ttl_lru_cache(maxsize=64)
+def get_trials_for_sessions(
+    subject: str, session_names: tuple[str, ...]
+) -> dict[str, pd.DataFrame]:
+    """Fetch per-trial data for many sessions with a single DB query (cached)."""
+    if not session_names:
+        return {}
+
+    quoted = ", ".join(f"'{s}'" for s in session_names)
+    restriction = f"subject_name = '{subject}' AND session_name in ({quoted})"
+
+    with _DB_LOCK:
+        df = pd.DataFrame(
+            (Chipmunk * Chipmunk.Trial * Chipmunk.TrialParameters & restriction).fetch(
+                order_by="session_name, trial_num"
+            )
+        )
+
+    if df.empty:
+        return {}
+
+    grouped: dict[str, pd.DataFrame] = {}
+    for session, session_df in df.groupby("session_name", sort=False):
+        grouped[str(session)] = session_df.reset_index(drop=True)
+    return grouped
+
+
 def clear_data_cache() -> None:
     """Clear lru_caches to force DB refetch."""
+    get_all_subjects.cache_clear()
     get_subject_data.cache_clear()
     get_session_trials.cache_clear()
+    get_subject_water.cache_clear()
+    get_trials_for_sessions.cache_clear()
+    get_sessions.cache_clear()
+    session_metrics.cache_clear()
+    multisession_metrics.cache_clear()
 
 
+@_ttl_lru_cache(maxsize=64)
 def get_sessions(subject: str) -> list[str]:
     """Return session names for a subject (chronological order)."""
-    df = get_subject_data(subject)
-    return df["session_name"].tolist() if not df.empty else []
+    with _DB_LOCK:
+        sessions = (DecisionTask.TrialSet() & f"subject_name = '{subject}'").fetch(
+            "session_name", order_by="session_name"
+        )
+    return list(sessions)
 
 
 def _compute_intensity(trials: pd.DataFrame) -> np.ndarray:
@@ -65,6 +150,7 @@ def _compute_intensity(trials: pd.DataFrame) -> np.ndarray:
     return intensity
 
 
+@_ttl_lru_cache(maxsize=256)
 def session_metrics(subject: str, session_name: str) -> dict | None:
     """Per-stimulus metrics for a single session, using Chipmunk.Trial directly."""
     trials = get_session_trials(subject, session_name)
@@ -191,9 +277,8 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     trial_nums_all = trials.trial_num.to_numpy()
 
     for start in range(0, len(ew_raw) - win + 1, 5):
-        block = slice(start, start + win)
-        ew_roll_x.append(int(np.mean(trial_nums_all[block])))
-        ew_roll_y.append(float(np.mean(ew_raw[block])))
+        ew_roll_x.append(int(np.mean(trial_nums_all[start : start + win])))
+        ew_roll_y.append(float(np.mean(ew_raw[start : start + win])))
 
     return dict(
         stims=ustims.tolist(),
@@ -225,6 +310,7 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     )
 
 
+@_ttl_lru_cache(maxsize=256)
 def multisession_metrics(
     subject: str,
     sessions_back: int,
@@ -233,9 +319,11 @@ def multisession_metrics(
     smooth_window: int = 3,
 ) -> dict | None:
     """Cross-session metrics. Dates are relative to `start_date` (default: latest)."""
-    df = get_subject_data(subject)
+    df = get_subject_data(subject).copy()
     if df.empty:
         return None
+
+    df = df.sort_values("session_name")
 
     # Parse session dates for filtering
     df["date"] = pd.to_datetime(
@@ -257,6 +345,10 @@ def multisession_metrics(
     # Take the last N sessions
     n = min(sessions_back, len(df))
     d = df.tail(n).copy()
+    d_session_names = tuple(d["session_name"].tolist())
+
+    trials_by_session = get_trials_for_sessions(subject, d_session_names)
+    water_by_session = get_subject_water(subject)
 
     # Calculate X-axis (Days relative to anchor_dt)
     # This aligns 0 to the shared anchor date (or this subject's latest date if none shared)
@@ -298,8 +390,8 @@ def multisession_metrics(
             median_rt_list.append(np.nan)
         # Median wait time (t_react - t_stim per trial)
         try:
-            trials = get_session_trials(row.subject_name, row.session_name)
-            if not trials.empty:
+            trials = trials_by_session.get(row.session_name)
+            if trials is not None and not trials.empty:
                 wt = trials["t_react"].to_numpy() - trials["t_stim"].to_numpy()
                 wt = wt[np.isfinite(wt) & (wt > 0) & (wt < 30)]
                 median_wait_list.append(float(np.median(wt)) if len(wt) else np.nan)
@@ -309,15 +401,10 @@ def multisession_metrics(
             median_wait_list.append(np.nan)
 
     # Water earned per session (from Watering table via DecisionTask)
-    water = []
-    for row in d.itertuples(index=False):
-        try:
-            key = dict(subject_name=row.subject_name, session_name=row.session_name)
-            with _DB_LOCK:
-                w = (DecisionTask * Watering & key).fetch1("water_volume")
-            water.append(float(w))
-        except Exception:
-            water.append(np.nan)
+    water = [
+        water_by_session.get(row.session_name, np.nan)
+        for row in d.itertuples(index=False)
+    ]
 
     # --- Smoothing Logic ---
     res = dict(
@@ -331,15 +418,14 @@ def multisession_metrics(
         water=np.array(water),
     )
 
+    out: dict[str, list[float]] = {}
     if smooth and smooth_window > 1:
         # Simple moving average, handling NaNs
         # We can use pandas rolling on a temporary series for each metric
         for k, v in res.items():
-            if k == "x":
-                continue  # Don't smooth the x-axis
             s = pd.Series(v)
             # Center=True, min_periods=1 to keep tails
-            res[k] = (
+            out[k] = (
                 s.rolling(window=smooth_window, center=True, min_periods=1)
                 .mean()
                 .tolist()
@@ -347,7 +433,7 @@ def multisession_metrics(
     else:
         # Convert back to list
         for k, v in res.items():
-            res[k] = v.tolist()
+            out[k] = np.asarray(v).tolist()
 
-    res["x"] = x_axis
-    return res
+    out["x"] = x_axis
+    return out

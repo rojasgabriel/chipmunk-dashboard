@@ -2,7 +2,7 @@
 
 import numpy as np
 from typing import Any
-from dash import Dash, dcc, html, Input, Output, callback_context
+from dash import Dash, dcc, html, Input, Output
 import plotly.graph_objects as go
 import plotly.express as px
 from .data import (
@@ -10,7 +10,6 @@ from .data import (
     get_sessions,
     session_metrics,
     multisession_metrics,
-    clear_data_cache,
 )
 
 COLORS = px.colors.qualitative.Plotly
@@ -269,11 +268,6 @@ def create_app() -> Dash:
         Input("auto-refresh", "n_intervals"),
     )
     def _update_date_options(subjects, n_intervals):
-        # Clear cache if triggered
-        ctx = callback_context
-        if ctx.triggered and "auto-refresh" in ctx.triggered[0]["prop_id"]:
-            clear_data_cache()
-
         if not subjects:
             return None, None, None, None
 
@@ -355,20 +349,12 @@ def create_app() -> Dash:
         Input("auto-refresh", "n_intervals"),
     )
     def _update_single(subjects, session_name, n_intervals):
-        # Clear cache logic
-        ctx = callback_context
-        if ctx.triggered and "auto-refresh" in ctx.triggered[0]["prop_id"]:
-            clear_data_cache()
-
         n = 10
         if isinstance(subjects, str):
             subjects = [subjects]
-        # Filter subjects with data first to determine subplot layout for outcomes
-        valid_subjects = []
-        for s in subjects:
-            sl = get_sessions(s)
-            if sl:
-                valid_subjects.append(s)
+
+        sessions_by_subject = {s: get_sessions(s) for s in subjects}
+        valid_subjects = [s for s in subjects if sessions_by_subject.get(s)]
 
         if not valid_subjects:
             e = _empty_fig()
@@ -388,10 +374,10 @@ def create_app() -> Dash:
         # Collect outcome totals for multi-subject horizontal bars
         multi_outcome_data = []
 
-        for i, subj in enumerate(subjects):
+        for i, subj in enumerate(valid_subjects):
             c = COLORS[i % len(COLORS)]
             grp = subj
-            sessions_list = get_sessions(subj)
+            sessions_list = sessions_by_subject[subj]
             ses = (
                 session_name
                 if i == 0 and session_name
@@ -504,7 +490,7 @@ def create_app() -> Dash:
             if sm["init_trial_nums"] and sm["init_times"]:
                 # Line
                 fig_il.add_trace(
-                    go.Scatter(
+                    go.Scattergl(
                         x=sm["init_trial_nums"],
                         y=sm["init_times"],
                         mode="markers",
@@ -568,7 +554,7 @@ def create_app() -> Dash:
             if sm["wait_delta_times"]:
                 # Line (Delta vs trial num)
                 fig_wdl.add_trace(
-                    go.Scatter(
+                    go.Scattergl(
                         x=sm["wait_trial_nums"],
                         y=sm["wait_delta_times"],
                         mode="markers",
@@ -632,7 +618,7 @@ def create_app() -> Dash:
             # Line (RT vs trial)
             if sm["rt_trial_nums"]:
                 fig_rl.add_trace(
-                    go.Scatter(
+                    go.Scattergl(
                         x=sm["rt_trial_nums"],
                         y=sm["rt_vals"],
                         mode="markers",
@@ -873,11 +859,6 @@ def create_app() -> Dash:
     def _update_multi(
         subjects, sessions_back, session_date, smooth_vals, smooth_window, n_intervals
     ):
-        # Clear cache logic (redundant but safe if this callback runs first)
-        ctx = callback_context
-        if ctx.triggered and "auto-refresh" in ctx.triggered[0]["prop_id"]:
-            clear_data_cache()
-
         n = 8
         if isinstance(subjects, str):
             subjects = [subjects]
