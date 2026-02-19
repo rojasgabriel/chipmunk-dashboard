@@ -7,6 +7,20 @@ import webbrowser
 
 
 def main() -> None:
+    """Parse CLI arguments and run the dashboard server.
+
+    Supported command:
+        ``chipmunk-dashboard run``
+
+    Runtime behavior:
+        - Launches Dash on the requested host/port.
+        - Optionally opens a browser tab unless ``--no-open`` is provided.
+        - In debug mode, browser auto-open is restricted to the Werkzeug
+          reloader child process.
+
+    Returns:
+        None.
+    """
     parser = argparse.ArgumentParser(prog="chipmunk-dashboard")
     sub = parser.add_subparsers(dest="command")
 

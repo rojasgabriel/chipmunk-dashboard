@@ -10,6 +10,16 @@ import threading
 import time
 import os
 import logging
+from typing import Any, Callable, Protocol, cast
+
+
+class _CacheClearCallable(Protocol):
+    """Callable protocol for wrapped functions exposing ``cache_clear``."""
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+
+    def cache_clear(self) -> None: ...
+
 
 _DB_LOCK = threading.RLock()
 _CACHE_TTL_SECONDS = int(os.getenv("CHIPMUNK_CACHE_TTL_SECONDS", "1800"))
@@ -21,6 +31,16 @@ _PREWARM_INFLIGHT: set[tuple[tuple[str, ...], int, str | None]] = set()
 
 
 def _perf_log(label: str, start_time: float, **fields) -> None:
+    """Emit data-layer timing metrics when profiling is enabled.
+
+    Args:
+        label: Metric label used in the emitted log message.
+        start_time: Timer start from ``time.perf_counter()``.
+        **fields: Extra key-value metadata appended to the message.
+
+    Returns:
+        None. Logging is skipped unless ``CHIPMUNK_PROFILE=1``.
+    """
     if not _PROFILE_PERF:
         return
 
@@ -32,28 +52,75 @@ def _perf_log(label: str, start_time: float, **fields) -> None:
     _LOGGER.info(msg)
 
 
-def _ttl_lru_cache(maxsize: int = 128, ttl_seconds: int = _CACHE_TTL_SECONDS):
-    """lru_cache with time-bucketed invalidation."""
+def _ttl_lru_cache(
+    maxsize: int = 128, ttl_seconds: int = _CACHE_TTL_SECONDS
+) -> Callable[[Callable[..., Any]], _CacheClearCallable]:
+    """Build a decorator that combines LRU caching with TTL invalidation.
 
-    def decorator(func):
+    Args:
+        maxsize: Maximum number of cache keys retained by ``lru_cache``.
+        ttl_seconds: Cache lifetime per time bucket in seconds.
+
+    Returns:
+        A decorator that memoizes function outputs by call arguments and a
+        hidden TTL bucket. Cache entries automatically expire when the time
+        bucket changes.
+    """
+
+    def decorator(func: Callable[..., Any]) -> _CacheClearCallable:
+        """Wrap a function with TTL-aware memoization.
+
+        Args:
+            func: Function to memoize.
+
+        Returns:
+            A wrapper that reuses cached results within a TTL bucket.
+        """
+
         @lru_cache(maxsize=maxsize)
-        def _cached(*args, __ttl_bucket: int, **kwargs):
+        def _cached(__ttl_bucket: int, *args: Any, **kwargs: Any) -> Any:
+            """Execute the original function for a specific TTL cache bucket.
+
+            Args:
+                *args: Positional arguments forwarded to ``func``.
+                __ttl_bucket: Hidden cache-busting value derived from wall time.
+                **kwargs: Keyword arguments forwarded to ``func``.
+
+            Returns:
+                The result of calling ``func(*args, **kwargs)``.
+            """
             return func(*args, **kwargs)
 
         @wraps(func)
-        def wrapper(*args, **kwargs):
-            ttl_bucket = int(time.time() // ttl_seconds)
-            return _cached(*args, __ttl_bucket=ttl_bucket, **kwargs)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            """Resolve the active TTL bucket and fetch a cached function value.
 
-        wrapper.cache_clear = _cached.cache_clear
-        return wrapper
+            Args:
+                *args: Positional arguments forwarded to the cached function.
+                **kwargs: Keyword arguments forwarded to the cached function.
+
+            Returns:
+                The cached or newly computed function result.
+            """
+            ttl_bucket = int(time.time() // ttl_seconds)
+            return _cached(ttl_bucket, *args, **kwargs)
+
+        cast(Any, wrapper).cache_clear = _cached.cache_clear
+        return cast(_CacheClearCallable, wrapper)
 
     return decorator
 
 
 @_ttl_lru_cache(maxsize=1)
 def get_all_subjects() -> list[str]:
-    """Return sorted unique subject names from the database."""
+    """Fetch all unique subject names from the database.
+
+    Returns:
+        A sorted list of unique subject names.
+
+    Side Effects:
+        Executes a database query under ``_DB_LOCK``.
+    """
     with _DB_LOCK:
         subjects = DecisionTask.TrialSet().fetch("subject_name")
     return sorted(set(subjects))
@@ -61,7 +128,18 @@ def get_all_subjects() -> list[str]:
 
 @_ttl_lru_cache(maxsize=64)
 def get_subject_data(subject: str) -> pd.DataFrame:
-    """Fetch all trial-set rows for a subject (cached in memory)."""
+    """Fetch all trial-set rows for a subject.
+
+    Args:
+        subject: Subject name to query.
+
+    Returns:
+        A DataFrame of trial-set rows ordered by ``session_name``.
+
+    Side Effects:
+        Executes a database query under ``_DB_LOCK`` and logs timing metrics
+        when profiling is enabled.
+    """
     start = time.perf_counter()
     fields = [
         "subject_name",
@@ -87,7 +165,18 @@ def get_subject_data(subject: str) -> pd.DataFrame:
 
 @_ttl_lru_cache(maxsize=64)
 def get_session_trials(subject: str, session_name: str) -> pd.DataFrame:
-    """Fetch per-trial Chipmunk data for a single session (cached)."""
+    """Fetch per-trial Chipmunk rows for a single session.
+
+    Args:
+        subject: Subject name to query.
+        session_name: Session name to query.
+
+    Returns:
+        A DataFrame of per-trial rows ordered by ``trial_num``.
+
+    Side Effects:
+        Executes a database query under ``_DB_LOCK``.
+    """
     restriction = f"subject_name = '{subject}' AND session_name = '{session_name}'"
     with _DB_LOCK:
         return pd.DataFrame(
@@ -99,7 +188,17 @@ def get_session_trials(subject: str, session_name: str) -> pd.DataFrame:
 
 @_ttl_lru_cache(maxsize=64)
 def get_subject_water(subject: str) -> dict[str, float]:
-    """Fetch water volumes for all sessions of a subject (cached)."""
+    """Fetch water volume by session for a subject.
+
+    Args:
+        subject: Subject name to query.
+
+    Returns:
+        A mapping from ``session_name`` to water volume in mL.
+
+    Side Effects:
+        Executes a database query under ``_DB_LOCK``.
+    """
     with _DB_LOCK:
         rows = (DecisionTask * Watering & f"subject_name = '{subject}'").fetch(
             "session_name", "water_volume", as_dict=True
@@ -111,7 +210,20 @@ def get_subject_water(subject: str) -> dict[str, float]:
 def get_trials_for_sessions(
     subject: str, session_names: tuple[str, ...]
 ) -> dict[str, pd.DataFrame]:
-    """Fetch per-trial data for many sessions with a single DB query (cached)."""
+    """Fetch per-trial rows for multiple sessions in one query.
+
+    Args:
+        subject: Subject name to query.
+        session_names: Session names to include.
+
+    Returns:
+        A mapping from ``session_name`` to a trial DataFrame for that session.
+        Returns an empty dict when no sessions are provided or no rows exist.
+
+    Side Effects:
+        Executes a database query under ``_DB_LOCK`` and logs timing metrics
+        when profiling is enabled.
+    """
     start = time.perf_counter()
     if not session_names:
         return {}
@@ -146,7 +258,20 @@ def get_trials_for_sessions(
 def get_wait_medians_for_sessions(
     subject: str, session_names: tuple[str, ...]
 ) -> dict[str, float]:
-    """Fetch wait-time medians per session using minimal trial columns (cached)."""
+    """Compute median wait time per session using trial timing columns.
+
+    Args:
+        subject: Subject name to query.
+        session_names: Session names to include.
+
+    Returns:
+        A mapping from ``session_name`` to median wait time in seconds.
+        Returns an empty dict when inputs or rows are empty after filtering.
+
+    Side Effects:
+        Executes a database query under ``_DB_LOCK`` and logs timing metrics
+        when profiling is enabled.
+    """
     start = time.perf_counter()
     if not session_names:
         return {}
@@ -184,7 +309,15 @@ def get_wait_medians_for_sessions(
 
 
 def clear_data_cache() -> None:
-    """Clear lru_caches to force DB refetch."""
+    """Clear all in-memory cached data and metric results.
+
+    Returns:
+        None.
+
+    Side Effects:
+        Invalidates TTL/LRU caches for subject lists, sessions, trial fetches,
+        and computed metrics so subsequent reads hit the database again.
+    """
     get_all_subjects.cache_clear()
     get_subject_data.cache_clear()
     get_session_trials.cache_clear()
@@ -199,7 +332,21 @@ def clear_data_cache() -> None:
 def prewarm_multisession_cache(
     subjects: list[str], sessions_back: int = 30, start_date: str | None = None
 ) -> None:
-    """Warm multisession cache in a background thread (no-op if disabled)."""
+    """Precompute multi-session metrics in a background thread.
+
+    Args:
+        subjects: Subject names to prewarm.
+        sessions_back: Number of sessions to include per subject.
+        start_date: Optional anchor date in ``YYYY-MM-DD`` format.
+
+    Returns:
+        None.
+
+    Side Effects:
+        Starts a daemon thread that populates ``multisession_metrics`` cache
+        entries, guarded by in-flight deduplication and lock coordination.
+        No-op when prewarming is disabled or subject list is empty.
+    """
     if not _PREWARM_ENABLED or not subjects:
         return
 
@@ -210,6 +357,15 @@ def prewarm_multisession_cache(
         _PREWARM_INFLIGHT.add(key)
 
     def _worker() -> None:
+        """Compute and populate multi-session cache entries in the background.
+
+        Returns:
+            None.
+
+        Side Effects:
+            Invokes ``multisession_metrics`` for each subject in the prewarm key,
+            updates the in-flight tracking set under lock, and emits perf logs.
+        """
         start = time.perf_counter()
         try:
             for subject in key[0]:
@@ -229,7 +385,17 @@ def prewarm_multisession_cache(
 
 @_ttl_lru_cache(maxsize=64)
 def get_sessions(subject: str) -> list[str]:
-    """Return session names for a subject (chronological order)."""
+    """Fetch session names for a subject in chronological order.
+
+    Args:
+        subject: Subject name to query.
+
+    Returns:
+        A list of ``session_name`` values ordered ascending.
+
+    Side Effects:
+        Executes a database query under ``_DB_LOCK``.
+    """
     with _DB_LOCK:
         sessions = (DecisionTask.TrialSet() & f"subject_name = '{subject}'").fetch(
             "session_name", order_by="session_name"
@@ -238,7 +404,15 @@ def get_sessions(subject: str) -> list[str]:
 
 
 def _compute_intensity(trials: pd.DataFrame) -> np.ndarray:
-    """Compute stimulus intensity per trial (stim_rate - category_boundary)."""
+    """Compute per-trial stimulus intensity from modality-specific rates.
+
+    Args:
+        trials: Trial DataFrame containing modality, rate, and boundary columns.
+
+    Returns:
+        A NumPy array where each entry is ``stim_rate - category_boundary``
+        for the trial's rewarded modality.
+    """
     intensity = np.full(len(trials), np.nan)
     for mod, rate_col in [
         ("audio", "stim_rate_audio"),
@@ -256,7 +430,21 @@ def _compute_intensity(trials: pd.DataFrame) -> np.ndarray:
 
 @_ttl_lru_cache(maxsize=256)
 def session_metrics(subject: str, session_name: str) -> dict | None:
-    """Per-stimulus metrics for a single session, using Chipmunk.Trial directly."""
+    """Compute single-session behavioral metrics used by dashboard figures.
+
+    Args:
+        subject: Subject name to query.
+        session_name: Session name to analyze.
+
+    Returns:
+        A dict of arrays and summary values for outcomes, psychometric and
+        chronometric curves, rolling metrics, initiation, wait, and reaction
+        time distributions. Returns ``None`` when no trial rows are found.
+
+    Side Effects:
+        Reads cached trial data and logs timing metrics when profiling is
+        enabled.
+    """
     start = time.perf_counter()
     trials = get_session_trials(subject, session_name)
     if trials.empty:
@@ -434,7 +622,23 @@ def multisession_metrics(
     smooth: bool = False,
     smooth_window: int = 3,
 ) -> dict | None:
-    """Cross-session metrics. Dates are relative to `start_date` (default: latest)."""
+    """Compute cross-session trend metrics for dashboard time series.
+
+    Args:
+        subject: Subject name to analyze.
+        sessions_back: Number of recent sessions to include.
+        start_date: Optional anchor date in ``YYYY-MM-DD`` format.
+        smooth: Whether to apply rolling mean smoothing to output series.
+        smooth_window: Rolling window size used when smoothing is enabled.
+
+    Returns:
+        A dict of aligned x-axis values and per-session metric series,
+        optionally smoothed. Returns ``None`` when no subject data is found.
+
+    Side Effects:
+        Reads cached subject/session aggregates and logs timing metrics when
+        profiling is enabled.
+    """
     start = time.perf_counter()
     df = get_subject_data(subject).copy()
     if df.empty:
@@ -472,10 +676,13 @@ def multisession_metrics(
     # Calculate X-axis (Days relative to anchor_dt)
     # This aligns 0 to the shared anchor date (or this subject's latest date if none shared)
     try:
-        days_diff = (d["date"] - anchor_dt).dt.days
-        x_axis = days_diff.tolist()
+        anchor_ts = pd.Timestamp(anchor_dt)
+        x_axis = [
+            float((pd.Timestamp(v) - anchor_ts).days) if pd.notna(v) else float("nan")
+            for v in d["date"].tolist()
+        ]
     except Exception:
-        x_axis = list(range(-len(d) + 1, 1))
+        x_axis = [float(i) for i in range(-len(d) + 1, 1)]
 
     response_values = d["response_values"].tolist()
     initiation_values = d["initiation_times"].tolist()
@@ -548,7 +755,7 @@ def multisession_metrics(
         for k, v in res.items():
             out[k] = np.asarray(v).tolist()
 
-    out["x"] = x_axis
+    out["x"] = [float(x) for x in x_axis]
     _perf_log(
         "multisession_metrics",
         start,

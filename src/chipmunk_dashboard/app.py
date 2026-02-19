@@ -39,6 +39,14 @@ _THEME = dict(
 
 
 def _empty_fig(msg: str = "Select subject(s)") -> go.Figure:
+    """Build a placeholder figure shown when no data selection is available.
+
+    Args:
+        msg: Annotation text displayed in the middle of the empty figure.
+
+    Returns:
+        A Plotly figure with hidden axes and a centered message annotation.
+    """
     fig = go.Figure()
     fig.update_layout(
         xaxis=dict(visible=False),
@@ -51,6 +59,15 @@ def _empty_fig(msg: str = "Select subject(s)") -> go.Figure:
 
 
 def _layout(fig: go.Figure, **kw) -> None:
+    """Apply shared dashboard layout defaults and optional per-figure overrides.
+
+    Args:
+        fig: Figure to style.
+        **kw: Plotly layout keyword overrides merged onto default settings.
+
+    Returns:
+        None. The input figure is updated in place.
+    """
     # Default layout settings
     config = dict(
         margin=_MARGIN,
@@ -82,6 +99,16 @@ def _layout(fig: go.Figure, **kw) -> None:
 
 
 def _perf_log(label: str, start_time: float, **fields) -> None:
+    """Emit callback timing metrics when profiling is enabled.
+
+    Args:
+        label: Metric label used in the emitted log message.
+        start_time: Timer start from ``time.perf_counter()``.
+        **fields: Extra key-value metadata appended to the message.
+
+    Returns:
+        None. Logging is skipped unless ``CHIPMUNK_PROFILE=1``.
+    """
     if not _PROFILE_PERF:
         return
 
@@ -94,6 +121,14 @@ def _perf_log(label: str, start_time: float, **fields) -> None:
 
 
 def create_app() -> Dash:
+    """Create and configure the Chipmunk Dash application.
+
+    Returns:
+        A fully configured Dash app with layout, callbacks, and styles.
+
+    Side Effects:
+        Reads subjects from the data layer during app construction.
+    """
     subjects = get_all_subjects()
     app = Dash(
         __name__,
@@ -109,6 +144,14 @@ def create_app() -> Dash:
 
     # -- helpers --------------------------------------------------------------
     def _graph(gid: str) -> dcc.Graph:
+        """Create a standardized graph component used in dashboard rows.
+
+        Args:
+            gid: Dash component id for the graph.
+
+        Returns:
+            A configured ``dcc.Graph`` with shared sizing and display settings.
+        """
         return dcc.Graph(
             id=gid,
             style={"height": _PLOT_H, "width": "100%"},
@@ -116,6 +159,14 @@ def create_app() -> Dash:
         )
 
     def _row(*ids: str) -> html.Div:
+        """Create a grid row of standardized graph components.
+
+        Args:
+            *ids: Graph component ids to render in the row.
+
+        Returns:
+            A ``html.Div`` containing one graph per id in a responsive grid.
+        """
         return html.Div(
             [_graph(i) for i in ids],
             style={
@@ -286,6 +337,29 @@ def create_app() -> Dash:
         Input("auto-refresh", "n_intervals"),
     )
     def _update_date_options(subjects, n_intervals):
+        """Update date-picker bounds and default date for the active subject.
+
+        Callback Inputs:
+            - ``subjects.value``
+            - ``auto-refresh.n_intervals``
+
+        Callback Outputs:
+            - ``session-date.date``
+            - ``session-date.min_date_allowed``
+            - ``session-date.max_date_allowed``
+            - ``session-date.initial_visible_month``
+
+        Args:
+            subjects: Selected subject names from the sidebar checklist.
+            n_intervals: Auto-refresh tick counter (unused except as trigger).
+
+        Returns:
+            A tuple with selected date and allowed date bounds, or ``None`` values
+            when no sessions are available.
+
+        Side Effects:
+            Triggers multi-session cache prewarming anchored to the latest date.
+        """
         if not subjects:
             return None, None, None, None
 
@@ -315,6 +389,24 @@ def create_app() -> Dash:
         Input("subjects", "value"),
     )
     def _update_time_options(date_val, subjects):
+        """Update session-time dropdown options for the selected calendar day.
+
+        Callback Inputs:
+            - ``session-date.date``
+            - ``subjects.value``
+
+        Callback Outputs:
+            - ``session-time.options``
+            - ``session-time.value``
+
+        Args:
+            date_val: Selected date in ``YYYY-MM-DD`` format.
+            subjects: Selected subject names from the sidebar checklist.
+
+        Returns:
+            Dropdown options for sessions on that day and the default selected
+            value (latest session for the day), or empty outputs.
+        """
         if not date_val or not subjects:
             return [], None
 
@@ -349,6 +441,20 @@ def create_app() -> Dash:
         prevent_initial_call=True,
     )
     def _clear_subjects(n_clicks):
+        """Clear all subject selections when the reset button is clicked.
+
+        Callback Inputs:
+            - ``clear-subjects.n_clicks``
+
+        Callback Outputs:
+            - ``subjects.value``
+
+        Args:
+            n_clicks: Button click count provided by Dash.
+
+        Returns:
+            An empty list to clear the subject checklist value.
+        """
         return []
 
     # ── Single-session plots ─────────────────────────────────────────────────
@@ -368,6 +474,28 @@ def create_app() -> Dash:
         Input("auto-refresh", "n_intervals"),
     )
     def _update_single(subjects, session_name, n_intervals):
+        """Render all single-session figures for the current selection.
+
+        Callback Inputs:
+            - ``subjects.value``
+            - ``session-time.value``
+            - ``auto-refresh.n_intervals``
+
+        Callback Outputs:
+            Ten figures for outcomes, psychometric/chronometric, performance,
+            initiation, wait-delta, and reaction-time views.
+
+        Args:
+            subjects: Selected subject names as a list or single string.
+            session_name: Selected session name for the first subject.
+            n_intervals: Auto-refresh tick counter (unused except as trigger).
+
+        Returns:
+            A 10-item tuple of Plotly figures in callback output order.
+
+        Side Effects:
+            Reads cached session metrics and emits performance logs when enabled.
+        """
         start = time.perf_counter()
         n = 10
         if isinstance(subjects, str):
@@ -881,6 +1009,35 @@ def create_app() -> Dash:
     def _update_multi(
         subjects, sessions_back, session_date, smooth_vals, smooth_window, n_intervals
     ):
+        """Render all multi-session trend figures for selected subjects.
+
+        Callback Inputs:
+            - ``subjects.value``
+            - ``sessions-back.value``
+            - ``session-date.date``
+            - ``smooth-metrics.value``
+            - ``smooth-window.value``
+            - ``auto-refresh.n_intervals``
+
+        Callback Outputs:
+            Eight figures for performance, EW rate, bias, medians, trial counts,
+            and water earned.
+
+        Args:
+            subjects: Selected subject names as a list or single string.
+            sessions_back: Number of recent sessions to include.
+            session_date: Shared anchor date used to align subject timelines.
+            smooth_vals: Smoothing toggle values from checklist.
+            smooth_window: Moving-average window size when smoothing is enabled.
+            n_intervals: Auto-refresh tick counter (unused except as trigger).
+
+        Returns:
+            An 8-item tuple of Plotly figures in callback output order.
+
+        Side Effects:
+            Reads cached multi-session metrics and emits performance logs when
+            profiling is enabled.
+        """
         start = time.perf_counter()
         n = 8
         if isinstance(subjects, str):
