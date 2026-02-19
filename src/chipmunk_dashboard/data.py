@@ -1,7 +1,6 @@
 """Data fetching and metric computation."""
 
 from labdata.schema import DecisionTask, Watering  # type: ignore
-from labdata import chipmunk  # type: ignore
 from chipmunk import Chipmunk  # type: ignore
 import pandas as pd
 import numpy as np
@@ -82,7 +81,14 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
 
     # Per-stimulus outcome counts (4 categories) + chronometric + p(right)
     ustims = np.unique(intensity[np.isfinite(intensity)])
-    n_correct, n_incorrect, n_ew, n_no_choice, p_right, median_rt = [], [], [], [], [], []
+    n_correct, n_incorrect, n_ew, n_no_choice, p_right, median_rt = (
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     for s in ustims:
         m = intensity == s
         t = trials[m]
@@ -95,7 +101,11 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         n_ew.append(ne)
         n_no_choice.append(nn)
         with_choice = t[t.with_choice == 1]
-        pr = (with_choice.response == 1).sum() / len(with_choice) if len(with_choice) else 0
+        pr = (
+            (with_choice.response == 1).sum() / len(with_choice)
+            if len(with_choice)
+            else 0
+        )
         p_right.append(pr)
         # Median RT for chronometric curve
         trial_rts = rts[m]
@@ -130,8 +140,8 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     # Rolling median of initiation time (20-trial window)
     init_roll_x, init_roll_y = [], []
     for start in range(0, len(init_vals) - win + 1, 5):
-        init_roll_x.append(int(np.mean(init_trial_nums[start:start + win])))
-        init_roll_y.append(float(np.median(init_vals[start:start + win])))
+        init_roll_x.append(int(np.mean(init_trial_nums[start : start + win])))
+        init_roll_y.append(float(np.median(init_vals[start : start + win])))
 
     # Wait times: actual vs minimum
     wait_actual = trials["t_react"].to_numpy() - trials["t_stim"].to_numpy()
@@ -147,7 +157,7 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     wait_actual = wait_actual[wait_mask]
     wait_min = wait_min[wait_mask]
     wait_delta = wait_actual - wait_min
-    
+
     # Wait delta filtered for histogram/lines
     wait_trial_nums = trials["trial_num"].to_numpy()[wait_mask]
 
@@ -155,7 +165,7 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     rt_full_mask = np.isfinite(rts) & (rts < 2) & (trials.response != 0)
     rt_trial_nums = trials["trial_num"].to_numpy()[rt_full_mask]
     rt_vals = rts[rt_full_mask]
-    
+
     # Sort for rolling
     rt_sorted_idx = np.argsort(rt_trial_nums)
     rt_trial_nums = rt_trial_nums[rt_sorted_idx]
@@ -164,14 +174,14 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     # Rolling median of RT (20-trial window)
     rt_roll_x, rt_roll_y = [], []
     for start in range(0, len(rt_vals) - win + 1, 5):
-        rt_roll_x.append(int(np.mean(rt_trial_nums[start:start + win])))
-        rt_roll_y.append(float(np.median(rt_vals[start:start + win])))
+        rt_roll_x.append(int(np.mean(rt_trial_nums[start : start + win])))
+        rt_roll_y.append(float(np.median(rt_vals[start : start + win])))
 
     # Rolling median of wait delta (20-trial window)
     wait_delta_x, wait_delta_y = [], []
     for start in range(0, len(wait_delta) - win + 1, 5):
-        wait_delta_x.append(int(np.mean(wait_trial_nums[start:start + win])))
-        wait_delta_y.append(float(np.median(wait_delta[start:start + win])))
+        wait_delta_x.append(int(np.mean(wait_trial_nums[start : start + win])))
+        wait_delta_y.append(float(np.median(wait_delta[start : start + win])))
 
     return dict(
         stims=ustims.tolist(),
@@ -201,7 +211,9 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     )
 
 
-def multisession_metrics(subject: str, sessions_back: int, anchor_session_name: str | None = None) -> dict | None:
+def multisession_metrics(
+    subject: str, sessions_back: int, anchor_session_name: str | None = None
+) -> dict | None:
     """Cross-session metrics (performance, EW rate, trial counts, etc.)."""
     df = get_subject_data(subject)
     if df.empty:
@@ -210,16 +222,22 @@ def multisession_metrics(subject: str, sessions_back: int, anchor_session_name: 
     # Handle anchor session logic
     if anchor_session_name:
         # Find index of the anchor session in the dataframe
-        matches = df.index[df['session_name'] == anchor_session_name].tolist()
+        matches = df.index[df["session_name"] == anchor_session_name].tolist()
         if matches:
             # Slice up to that session (inclusive)
             idx = matches[0]
-            df = df.iloc[:idx + 1]
+            df = df.iloc[: idx + 1]
 
     n = min(sessions_back, len(df))
     d = df.tail(n)
 
-    ew_rate, side_bias, median_init, median_rt_list, median_wait_list = [], [], [], [], []
+    ew_rate, side_bias, median_init, median_rt_list, median_wait_list = (
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
     for row in d.itertuples(index=False):
         resp = np.array(row.response_values)
         choice = np.isin(resp, [-1, 1])
@@ -238,7 +256,9 @@ def multisession_metrics(subject: str, sessions_back: int, anchor_session_name: 
         if row.reaction_times is not None:
             rt_arr = np.asarray(row.reaction_times).flatten()
             rt_valid = rt_arr[np.isfinite(rt_arr) & (rt_arr > 0) & (rt_arr < 2)]
-            median_rt_list.append(float(np.median(rt_valid)) if len(rt_valid) else np.nan)
+            median_rt_list.append(
+                float(np.median(rt_valid)) if len(rt_valid) else np.nan
+            )
         else:
             median_rt_list.append(np.nan)
         # Median wait time (t_react - t_stim per trial)
