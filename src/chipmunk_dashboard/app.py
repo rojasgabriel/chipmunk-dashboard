@@ -147,8 +147,17 @@ def create_app() -> Dash:
                 style={"marginTop": "8px", "width": "100%", "cursor": "pointer"},
             ),
             html.Br(),
-            html.Label("Session (first subject)", style={"fontWeight": "bold"}),
-            dcc.Dropdown(id="session", placeholder="(latest)"),
+            html.Label("Session Date", style={"fontWeight": "bold"}),
+            dcc.DatePickerSingle(
+                id="session-date",
+                display_format="YYYY-MM-DD",
+                style={"width": "100%", "marginBottom": "8px"},
+            ),
+            dcc.Dropdown(
+                id="session-time",
+                placeholder="Time (if multiple)",
+                style={"marginBottom": "8px"},
+            ),
             html.Br(),
             html.Label("Sessions back", style={"fontWeight": "bold"}),
             dcc.Slider(
@@ -243,24 +252,76 @@ def create_app() -> Dash:
     )
 
     # -- callbacks ------------------------------------------------------------
-    # Session dropdown
+    # Session Date & Time Logic
     @app.callback(
-        Output("session", "options"),
-        Output("session", "value"),
+        Output("session-date", "date"),
+        Output("session-date", "min_date_allowed"),
+        Output("session-date", "max_date_allowed"),
+        Output("session-date", "initial_visible_month"),
         Input("subjects", "value"),
         Input("auto-refresh", "n_intervals"),
     )
-    def _update_sessions(subjects, n_intervals):
-        # Clear cache if triggered by auto-refresh
+    def _update_date_options(subjects, n_intervals):
+        # Clear cache if triggered
         ctx = callback_context
         if ctx.triggered and "auto-refresh" in ctx.triggered[0]["prop_id"]:
             clear_data_cache()
 
         if not subjects:
-            return [], None
+            return None, None, None, None
+
         sessions = get_sessions(subjects[0])
-        opts = [{"label": s, "value": s} for s in sessions]
-        return opts, sessions[-1] if sessions else None
+        if not sessions:
+            return None, None, None, None
+
+        # Parse dates from session names (YYYYMMDD_HHMMSS)
+        dates = []
+        for s in sessions:
+            if len(s) >= 8:
+                d_str = f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+                dates.append(d_str)
+
+        if not dates:
+            return None, None, None, None
+
+        min_d = min(dates)
+        max_d = max(dates)
+        return max_d, min_d, max_d, max_d  # Default to latest
+
+    @app.callback(
+        Output("session-time", "options"),
+        Output("session-time", "value"),
+        Input("session-date", "date"),
+        Input("subjects", "value"),
+    )
+    def _update_time_options(date_val, subjects):
+        if not date_val or not subjects:
+            return [], None
+
+        sessions = get_sessions(subjects[0])
+        raw_date = date_val.replace("-", "")  # YYYY-MM-DD -> YYYYMMDD
+
+        # Filter sessions for this date
+        day_sessions = [s for s in sessions if s.startswith(raw_date)]
+
+        if not day_sessions:
+            return [], None
+
+        # Create time options (HH:MM:SS) from YYYYMMDD_HHMMSS
+        opts = []
+        for s in day_sessions:
+            if "_" in s:
+                t_str = s.split("_")[1]
+                if len(t_str) == 6:
+                    fmt = f"{t_str[:2]}:{t_str[2:4]}:{t_str[4:]}"
+                    opts.append({"label": fmt, "value": s})
+                else:
+                    opts.append({"label": s, "value": s})
+            else:
+                opts.append({"label": s, "value": s})
+
+        # Select the latest session of the day by default
+        return opts, opts[-1]["value"] if opts else None
 
     @app.callback(
         Output("subjects", "value"),
@@ -283,10 +344,10 @@ def create_app() -> Dash:
         Output("react-line", "figure"),
         Output("react-hist", "figure"),
         Input("subjects", "value"),
-        Input("session", "value"),
+        Input("session-time", "value"),
         Input("auto-refresh", "n_intervals"),
     )
-    def _update_single(subjects, session, n_intervals):
+    def _update_single(subjects, session_name, n_intervals):
         # Clear cache logic
         ctx = callback_context
         if ctx.triggered and "auto-refresh" in ctx.triggered[0]["prop_id"]:
@@ -332,8 +393,8 @@ def create_app() -> Dash:
             grp = subj
             sessions_list = get_sessions(subj)
             ses = (
-                session
-                if i == 0 and session
+                session_name
+                if i == 0 and session_name
                 else (sessions_list[-1] if sessions_list else None)
             )
             if not ses:
@@ -758,7 +819,7 @@ def create_app() -> Dash:
         Output("water", "figure"),
         Input("subjects", "value"),
         Input("sessions-back", "value"),
-        Input("session", "value"),
+        Input("session-time", "value"),
         Input("auto-refresh", "n_intervals"),
     )
     def _update_multi(subjects, sessions_back, session_val, n_intervals):
