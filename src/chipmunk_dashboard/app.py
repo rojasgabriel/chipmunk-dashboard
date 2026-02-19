@@ -1,7 +1,10 @@
 """Dash application — layout and callbacks."""
 
 import numpy as np
-from typing import Any
+from typing import Any, cast
+import os
+import time
+import logging
 from dash import Dash, dcc, html, Input, Output
 import plotly.graph_objects as go
 import plotly.express as px
@@ -21,6 +24,8 @@ _AXIS_CLEAN = dict(showgrid=False, zeroline=False, tickfont=dict(color="#56606b"
 _LEGEND: dict[str, Any] = dict(visible=False)
 _PLOT_H = "280px"
 _MAX_W = "560px"  # max width per plot
+_PROFILE_PERF = os.getenv("CHIPMUNK_PROFILE", "0") == "1"
+_LOGGER = logging.getLogger(__name__)
 _THEME = dict(
     bg="#f6f7fb",
     panel="#eef1f6",
@@ -73,6 +78,18 @@ def _layout(fig: go.Figure, **kw) -> None:
     # Update defaults with provided kwargs
     config.update(kw)
     fig.update_layout(**config)
+
+
+def _perf_log(label: str, start_time: float, **fields) -> None:
+    if not _PROFILE_PERF:
+        return
+
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+    details = " ".join(f"{k}={v}" for k, v in fields.items())
+    msg = f"perf {label} elapsed_ms={elapsed_ms:.1f}"
+    if details:
+        msg = f"{msg} {details}"
+    _LOGGER.info(msg)
 
 
 def create_app() -> Dash:
@@ -152,7 +169,7 @@ def create_app() -> Dash:
             html.Label("Smooth (Multi)", style={"fontWeight": "bold"}),
             dcc.Checklist(
                 id="smooth-metrics",
-                options=[{"label": "Enable Smoothing", "value": "smooth"}],
+                options=cast(Any, [{"label": "Enable Smoothing", "value": "smooth"}]),
                 value=[],
                 style={"fontSize": "14px"},
             ),
@@ -349,6 +366,7 @@ def create_app() -> Dash:
         Input("auto-refresh", "n_intervals"),
     )
     def _update_single(subjects, session_name, n_intervals):
+        start = time.perf_counter()
         n = 10
         if isinstance(subjects, str):
             subjects = [subjects]
@@ -358,6 +376,7 @@ def create_app() -> Dash:
 
         if not valid_subjects:
             e = _empty_fig()
+            _perf_log("_update_single", start, subjects=0)
             return tuple(e for _ in range(n))
 
         multi = len(subjects) > 1
@@ -826,6 +845,7 @@ def create_app() -> Dash:
                 yaxis_title="count",
             )
 
+        _perf_log("_update_single", start, subjects=len(valid_subjects), multi=multi)
         return (
             fig_fc,
             fig_pr,
@@ -859,11 +879,13 @@ def create_app() -> Dash:
     def _update_multi(
         subjects, sessions_back, session_date, smooth_vals, smooth_window, n_intervals
     ):
+        start = time.perf_counter()
         n = 8
         if isinstance(subjects, str):
             subjects = [subjects]
         if not subjects:
             e = _empty_fig()
+            _perf_log("_update_multi", start, subjects=0)
             return tuple(e for _ in range(n))
 
         do_smooth = "smooth" in (smooth_vals or [])
@@ -1077,6 +1099,14 @@ def create_app() -> Dash:
             xaxis=_ms,
         )
 
+        _perf_log(
+            "_update_multi",
+            start,
+            subjects=len(subjects),
+            sessions_back=sessions_back,
+            smooth=do_smooth,
+            smooth_window=win,
+        )
         return fig_perf, fig_ew, fig_sb, fig_it, fig_mrt, fig_mwt, fig_tc, fig_wa
 
     return app

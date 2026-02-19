@@ -9,9 +9,24 @@ from functools import wraps
 import threading
 import time
 import os
+import logging
 
 _DB_LOCK = threading.RLock()
 _CACHE_TTL_SECONDS = int(os.getenv("CHIPMUNK_CACHE_TTL_SECONDS", "1800"))
+_PROFILE_PERF = os.getenv("CHIPMUNK_PROFILE", "0") == "1"
+_LOGGER = logging.getLogger(__name__)
+
+
+def _perf_log(label: str, start_time: float, **fields) -> None:
+    if not _PROFILE_PERF:
+        return
+
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+    details = " ".join(f"{k}={v}" for k, v in fields.items())
+    msg = f"perf {label} elapsed_ms={elapsed_ms:.1f}"
+    if details:
+        msg = f"{msg} {details}"
+    _LOGGER.info(msg)
 
 
 def _ttl_lru_cache(maxsize: int = 128, ttl_seconds: int = _CACHE_TTL_SECONDS):
@@ -44,6 +59,7 @@ def get_all_subjects() -> list[str]:
 @_ttl_lru_cache(maxsize=64)
 def get_subject_data(subject: str) -> pd.DataFrame:
     """Fetch all trial-set rows for a subject (cached in memory)."""
+    start = time.perf_counter()
     fields = [
         "subject_name",
         "session_name",
@@ -57,9 +73,13 @@ def get_subject_data(subject: str) -> pd.DataFrame:
         rel = DecisionTask.TrialSet() & f"subject_name = '{subject}'"
         try:
             rows = rel.fetch(*fields, order_by="session_name", as_dict=True)
-            return pd.DataFrame(rows)
+            df = pd.DataFrame(rows)
+            _perf_log("get_subject_data", start, subject=subject, rows=len(df))
+            return df
         except Exception:
-            return pd.DataFrame(rel)
+            df = pd.DataFrame(rel)
+            _perf_log("get_subject_data_fallback", start, subject=subject, rows=len(df))
+            return df
 
 
 @_ttl_lru_cache(maxsize=64)
@@ -89,6 +109,7 @@ def get_trials_for_sessions(
     subject: str, session_names: tuple[str, ...]
 ) -> dict[str, pd.DataFrame]:
     """Fetch per-trial data for many sessions with a single DB query (cached)."""
+    start = time.perf_counter()
     if not session_names:
         return {}
 
@@ -108,6 +129,13 @@ def get_trials_for_sessions(
     grouped: dict[str, pd.DataFrame] = {}
     for session, session_df in df.groupby("session_name", sort=False):
         grouped[str(session)] = session_df.reset_index(drop=True)
+    _perf_log(
+        "get_trials_for_sessions",
+        start,
+        subject=subject,
+        sessions=len(session_names),
+        rows=len(df),
+    )
     return grouped
 
 
@@ -153,8 +181,12 @@ def _compute_intensity(trials: pd.DataFrame) -> np.ndarray:
 @_ttl_lru_cache(maxsize=256)
 def session_metrics(subject: str, session_name: str) -> dict | None:
     """Per-stimulus metrics for a single session, using Chipmunk.Trial directly."""
+    start = time.perf_counter()
     trials = get_session_trials(subject, session_name)
     if trials.empty:
+        _perf_log(
+            "session_metrics", start, subject=subject, session=session_name, rows=0
+        )
         return None
 
     intensity = _compute_intensity(trials)
@@ -280,7 +312,7 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         ew_roll_x.append(int(np.mean(trial_nums_all[start : start + win])))
         ew_roll_y.append(float(np.mean(ew_raw[start : start + win])))
 
-    return dict(
+    out = dict(
         stims=ustims.tolist(),
         n_correct=n_correct,
         n_incorrect=n_incorrect,
@@ -308,6 +340,14 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         ew_roll_x=ew_roll_x,  # rolling EW x
         ew_roll_y=ew_roll_y,  # rolling EW y
     )
+    _perf_log(
+        "session_metrics",
+        start,
+        subject=subject,
+        session=session_name,
+        rows=len(trials),
+    )
+    return out
 
 
 @_ttl_lru_cache(maxsize=256)
@@ -319,8 +359,10 @@ def multisession_metrics(
     smooth_window: int = 3,
 ) -> dict | None:
     """Cross-session metrics. Dates are relative to `start_date` (default: latest)."""
+    start = time.perf_counter()
     df = get_subject_data(subject).copy()
     if df.empty:
+        _perf_log("multisession_metrics", start, subject=subject, sessions=0)
         return None
 
     df = df.sort_values("session_name")
@@ -340,6 +382,7 @@ def multisession_metrics(
         if not df.empty:
             anchor_dt = df["date"].iloc[-1]
         else:
+            _perf_log("multisession_metrics", start, subject=subject, sessions=0)
             return None
 
     # Take the last N sessions
@@ -436,4 +479,12 @@ def multisession_metrics(
             out[k] = np.asarray(v).tolist()
 
     out["x"] = x_axis
+    _perf_log(
+        "multisession_metrics",
+        start,
+        subject=subject,
+        sessions=len(d),
+        smooth=smooth,
+        smooth_window=smooth_window,
+    )
     return out
