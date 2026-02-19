@@ -15,20 +15,12 @@ from .data import (
 )
 
 COLORS = px.colors.qualitative.Plotly
-_MARGIN: dict[str, int] = dict(l=50, r=20, t=42, b=40)
+_MARGIN: dict[str, int] = dict(l=50, r=20, t=42, b=80)
 _CLEAN: dict[str, Any] = dict(
     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)"
 )
 _AXIS_CLEAN = dict(showgrid=False, zeroline=False, tickfont=dict(color="#56606b"))
-_LEGEND = dict(
-    orientation="h",
-    yanchor="top",
-    y=-0.22,
-    xanchor="center",
-    x=0.5,
-    font=dict(size=10, color="#56606b"),
-    tracegroupgap=5,
-)
+_LEGEND: dict[str, Any] = dict(visible=False)
 _PLOT_H = "280px"
 _MAX_W = "560px"  # max width per plot
 _THEME = dict(
@@ -991,7 +983,7 @@ def create_app() -> Dash:
 
         _ref_line = dict(line_dash="dash", line_color="grey", line_width=1)
 
-        _ms = dict(dtick=1, showgrid=False, zeroline=False)
+        _ms = dict(dtick=5, showgrid=False, zeroline=False)
         _layout(
             fig_perf,
             title="Performance (easy)",

@@ -335,8 +335,8 @@ def multisession_metrics(
         # Simple moving average, handling NaNs
         # We can use pandas rolling on a temporary series for each metric
         for k, v in res.items():
-            if k == "n_with_choice" or k == "water":
-                continue  # Don't smooth counts/water
+            if k == "x":
+                continue  # Don't smooth the x-axis
             s = pd.Series(v)
             # Center=True, min_periods=1 to keep tails
             res[k] = (
