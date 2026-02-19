@@ -13,7 +13,7 @@ def main() -> None:
     run_p = sub.add_parser("run", help="Launch the dashboard")
     run_p.add_argument("--port", type=int, default=8050, help="Port (default: 8050)")
     run_p.add_argument(
-        "--host", type=str, default="127.0.0.1", help="Host (default: 127.0.0.1)"
+        "--host", type=str, default="localhost", help="Host (default: localhost)"
     )
     run_p.add_argument("--debug", action="store_true", help="Enable Dash debug mode")
     run_p.add_argument(
