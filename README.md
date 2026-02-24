@@ -5,7 +5,7 @@ A Plotly Dash interface for visualizing mouse behavioral data from the `chipmunk
 ## Prerequisites
 
 1. **VPN**: You must be connected to the lab network/VPN to access the DataJoint database.
-2. **Conda**: Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/products/distribution) if you don't have it.
+2. **Conda**
 
 ## Installation
 
@@ -26,15 +26,14 @@ For development, install the package in editable mode:
 pip install -e .
 ```
 
-**Note**: If you need the chipmunk plugin (optional), install it manually:
+Copy the chipmunk folder to the `plugins` folder in your local `labdata` directory:
 ```bash
 git clone https://github.com/churchlandlab/chipmunk.git
 cd chipmunk
-git checkout labdata
-# Follow installation instructions from chipmunk repository
+cp . ~/labdata/plugins/
 ```
 
-### Option 2: Pip Installation (Legacy)
+### Option 2: Pip Installation
 
 Install in editable mode with pip:
 
@@ -71,17 +70,6 @@ chipmunk-dashboard run --host 0.0.0.0 --port 8050
 
 **On your local machine**, browse to `http://<remote-ip-or-hostname>:8050`.
 
-## Features
-
-- **Multi-Subject Comparison**: Select multiple subjects to overlay performance metrics.
-- **Session Inspector**: Deep dive into specific sessions (Psychometric curves, Response times, Wait times).
-- **Longitudinal Tracking**: Visualize performance trends, bias, and water intake across recent sessions.
-- **Auto-Refresh**: Dashboard updates automatically every 5 minutes during experiments.
-
-## Known issues
-
-- This does not work if your `datajoint` version is `>2.0`. It was developed and currently works in `0.14.1`.
-
 ## Updating Your Environment
 
 If the environment.yml file is updated in the repository:
@@ -95,7 +83,7 @@ To update to the latest commit on main:
 
 ```bash
 cd chipmunk-dashboard
-git checkout main
+git switch main
 git pull origin main
 conda env update -f environment.yml --prune
 ```
