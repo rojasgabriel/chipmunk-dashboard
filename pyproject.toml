@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build"]
+build-backend = "uv_build"
 
 [project]
 name = "chipmunk-dashboard"
@@ -8,13 +8,18 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
     "dash",
-    "plotly",
+    "plotly<6",
     "pandas",
     "numpy",
+    "labdata>=0.0.22",
+    "setuptools<=80",
 ]
 
 [project.scripts]
 chipmunk-dashboard = "chipmunk_dashboard.cli:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/chipmunk_dashboard"]
+[tool.uv.build-backend]
+module-root = "src"
+
+[dependency-groups]
+dev = ["ruff>=0.13.0", "pre-commit>=3.0"]
