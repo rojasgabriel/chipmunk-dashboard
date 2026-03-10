@@ -15,7 +15,9 @@ First install . Then...
 ```bash
 git clone https://github.com/rojasgabriel/chipmunk-dashboard.git
 cd chipmunk-dashboard
-uv sync #this will install all the dependencies on a venv that is initialized when you do `uv run ...`
+
+#this will install all the dependencies on a venv that is initialized when you do `uv run ...`
+uv sync
 ```
 
 ## Running the Dashboard
