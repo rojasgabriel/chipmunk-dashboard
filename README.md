@@ -14,7 +14,7 @@ A Plotly Dash interface for visualizing mouse behavioral data from the `chipmunk
 git clone https://github.com/rojasgabriel/chipmunk-dashboard.git
 cd chipmunk-dashboard
 
-# This will install all the dependencies on a venv that is initialized when you do `uv run ...`
+# Installs dependencies on a venv initialized with `uv run ...`
 uv sync
 ```
 
