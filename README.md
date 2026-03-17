@@ -10,13 +10,11 @@ A Plotly Dash interface for visualizing mouse behavioral data from the `chipmunk
 
 ## Installation
 
-First install . Then...
-
 ```bash
 git clone https://github.com/rojasgabriel/chipmunk-dashboard.git
 cd chipmunk-dashboard
 
-#this will install all the dependencies on a venv that is initialized when you do `uv run ...`
+# This will install all the dependencies on a venv that is initialized when you do `uv run ...`
 uv sync
 ```
 
@@ -25,17 +23,22 @@ uv sync
 To start the server **while inside the `chipmunk-dashboard` folder**:
 
 ```bash
+# Run with defaults (localhost:8050)
 uv run chipmunk-dashboard run
-uv run chipmunk-dashboard run --port 9000  # Run on a specific port
-uv run chipmunk-dashboard run --debug      # Enable hot-reloading for development
+
+# Run on a specific port
+uv run chipmunk-dashboard run --port 9000
+
+# Enable hot-reloading for development
+uv run chipmunk-dashboard run --debug
 ```
 
 ## Remote Access
 
-On the remote machine, listen on all interfaces:
+On a remote machine:
 
 ```bash
 uv run chipmunk-dashboard run --host 0.0.0.0 --port XXXX
 ```
 
-On your local machine, browse to `http://<remote-ip-or-hostname>:XXXX`.
+On your local machine, type `<remote-ip-or-hostname>:XXXX` in your browser.
