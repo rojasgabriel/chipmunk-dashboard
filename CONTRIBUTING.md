@@ -208,7 +208,7 @@ helps avoid confusion when extending the project.
 4. **Test manually** by running the dashboard with `--debug` and verifying the
    affected views.
 
-5. **Open a pull request** against `main` with a clear description of what
+5. **Open a pull request** against `dev` with a clear description of what
    changed and why.
 
 For questions or to discuss larger changes before writing code, open a GitHub
