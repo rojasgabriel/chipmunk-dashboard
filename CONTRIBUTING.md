@@ -14,7 +14,8 @@ and how to submit changes.
 4. [Running the dashboard locally](#running-the-dashboard-locally)
 5. [Environment variables](#environment-variables)
 6. [What is hardcoded vs. configurable](#what-is-hardcoded-vs-configurable)
-7. [Submitting changes](#submitting-changes)
+7. [Example: adding a new plot](#example-adding-a-new-plot)
+8. [Submitting changes](#submitting-changes)
 
 ---
 
@@ -186,6 +187,189 @@ helps avoid confusion when extending the project.
 - **Dash component IDs** — string IDs like `"subjects"`, `"session-date"`, and
   `"performance"` are shared between the layout and the callback decorators.
   Renaming one requires updating both places.
+
+---
+
+## Example: adding a new plot
+
+This walkthrough adds a **cumulative rewards** line plot to the Single Session
+section. It demonstrates every file you need to touch and why. The same pattern
+applies to the Multi Session section — differences are noted inline.
+
+The four steps are always:
+1. Compute the metric in `data.py`
+2. Register a new graph component in the layout (`app.py`)
+3. Add the matching `Output` to the callback decorator (`app.py`)
+4. Build and return the figure in the callback body (`app.py`)
+
+---
+
+### Step 1 — Compute the metric in `data.py`
+
+`session_metrics()` is the function that crunches single-session numbers and
+returns them as a plain dict. Add your new series to that dict so `app.py` can
+read it without touching the database.
+
+Find the `out = dict(...)` block near the bottom of `session_metrics()` and add
+your key(s):
+
+```python
+# data.py — inside session_metrics(), in the `out = dict(...)` block
+
+out = dict(
+    # … existing keys …
+    cum_reward_x=trial_nums.tolist(),               # trial numbers (x-axis)
+    cum_reward_y=np.cumsum(rewarded).tolist(),       # cumulative correct (y-axis)
+)
+```
+
+`trial_nums` and `rewarded` are already computed earlier in `session_metrics()`:
+
+```python
+# These lines already exist — no need to add them
+rewarded = trials.rewarded.to_numpy()
+trial_nums = trials.trial_num.to_numpy()
+```
+
+> **Multi-session equivalent:** add a new list to the `res = dict(...)` block
+> inside `multisession_metrics()` instead. Each entry in that list corresponds
+> to one session in the time-series window. Apply the same smoothing the other
+> metrics use by ensuring it is inside the `res` dict so the existing smoothing
+> loop processes it automatically.
+
+---
+
+### Step 2 — Register the graph component in the layout
+
+Every plot needs a unique string component ID. Add it to one of the `_row(...)`
+calls in `create_app()` so the layout knows where to render it.
+
+The two layout sections are:
+
+```python
+# app.py — single-session rows (inside create_app())
+single_section = html.Div([
+    …
+    _row("frac-correct", "p-right", "chrono", "session-perf"),  # Row 1
+    _row("init-line", "init-hist"),                              # Row 2
+    _row("wait-delta-line", "wait-delta-hist"),                  # Row 3
+    _row("react-line", "react-hist"),                            # Row 4
+    _row("cum-reward"),                                          # ← add Row 5
+])
+```
+
+`_row("cum-reward")` creates a full-width `dcc.Graph` with id `"cum-reward"`.
+Pass multiple IDs (e.g. `_row("cum-reward", "another-plot")`) to get a
+side-by-side grid.
+
+> **Multi-session equivalent:** add the ID to one of the `_row(...)` calls in
+> `multi_section` instead.
+
+---
+
+### Step 3 — Add the `Output` to the callback decorator
+
+Dash connects layout components to callbacks through `Output` / `Input`
+declarations. Each plot in the layout must have a matching `Output` in exactly
+one callback.
+
+Single-session plots belong to `_update_single`; multi-session plots belong to
+`_update_multi`. Add the new output **and** increment the `n` counter so the
+empty-figure fallback produces the right number of figures:
+
+```python
+# app.py — _update_single callback decorator
+@app.callback(
+    Output("frac-correct",      "figure"),
+    Output("p-right",           "figure"),
+    Output("chrono",            "figure"),
+    Output("session-perf",      "figure"),
+    Output("init-line",         "figure"),
+    Output("init-hist",         "figure"),
+    Output("wait-delta-line",   "figure"),
+    Output("wait-delta-hist",   "figure"),
+    Output("react-line",        "figure"),
+    Output("react-hist",        "figure"),
+    Output("cum-reward",        "figure"),   # ← add this line
+    Input("subjects",           "value"),
+    Input("session-time",       "value"),
+    Input("auto-refresh",       "n_intervals"),
+)
+def _update_single(subjects, session_name, n_intervals):
+    n = 11   # ← was 10, increment by 1
+    …
+```
+
+The order of `Output` declarations must exactly match the order of values in
+the `return` tuple at the end of the function.
+
+---
+
+### Step 4 — Build and return the figure
+
+Inside the subject loop of `_update_single`, create a `go.Figure()` before the
+loop, add traces inside the loop, apply `_layout()` after the loop, and include
+it in the return tuple.
+
+**Before the loop** (alongside the other `fig_*` initialisations):
+
+```python
+fig_cr = go.Figure()
+```
+
+**Inside the `for i, subj in enumerate(valid_subjects):` loop** (alongside the
+other `fig_*.add_trace()` calls):
+
+```python
+sm = session_metrics(subj, ses)   # already fetched — do not call again
+if sm and sm["cum_reward_x"]:
+    fig_cr.add_trace(
+        go.Scatter(
+            x=sm["cum_reward_x"],
+            y=sm["cum_reward_y"],
+            mode="lines",
+            name=subj,
+            showlegend=len(valid_subjects) > 1,
+            line=dict(color=c, width=2),
+            hovertemplate="%{y} rewards" + "<extra>" + subj + "</extra>",
+        )
+    )
+```
+
+**After the loop** (alongside the other `_layout()` calls):
+
+```python
+_layout(
+    fig_cr,
+    title="Cumulative Rewards",
+    xaxis_title="trial number",
+    yaxis_title="rewards",
+)
+```
+
+**In the `return` statement** — append `fig_cr` in the same position as the
+`Output` you added in Step 3:
+
+```python
+return (
+    fig_fc, fig_pr, fig_ch, fig_sp,
+    fig_il, fig_ih,
+    fig_wdl, fig_wdh,
+    fig_rl, fig_rh,
+    fig_cr,   # ← new
+)
+```
+
+---
+
+### Step 5 — Verify
+
+```bash
+uv run chipmunk-dashboard run --debug
+```
+
+Select a subject and confirm the new plot appears in the Single Session section.
+Hot-reload will pick up any further edits automatically.
 
 ---
 
