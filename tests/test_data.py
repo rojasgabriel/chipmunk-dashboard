@@ -234,3 +234,152 @@ class TestDataUtilities(unittest.TestCase):
 
         self.assertEqual(result, ["20260101_010101", "20260102_010101"])
         rel.fetch.assert_called_once_with("session_name", order_by="session_name")
+
+    def test_get_subject_data_returns_dataframe_from_fetch(self) -> None:
+        self.data.get_subject_data.cache_clear()
+        rows = [{"subject_name": "subject-a", "session_name": "20260101_010101"}]
+        rel = mock.Mock()
+        rel.fetch.return_value = rows
+        trialset = mock.Mock()
+        trialset.__and__ = mock.Mock(return_value=rel)
+        trialset_cls = mock.Mock(return_value=trialset)
+
+        with (
+            mock.patch.object(self.data.DecisionTask, "TrialSet", trialset_cls),
+            mock.patch.object(self.data.pd, "DataFrame", side_effect=lambda x: x),
+            mock.patch.object(self.data, "_perf_log") as perf_log,
+        ):
+            result = self.data.get_subject_data("subject-a")
+
+        self.assertEqual(result, rows)
+        trialset.__and__.assert_called_once_with("subject_name = 'subject-a'")
+        rel.fetch.assert_called_once()
+        self.assertEqual(rel.fetch.call_args.kwargs["order_by"], "session_name")
+        self.assertTrue(rel.fetch.call_args.kwargs["as_dict"])
+        perf_log.assert_called_once()
+        self.assertEqual(perf_log.call_args.args[0], "get_subject_data")
+
+    def test_get_subject_data_falls_back_when_fetch_raises(self) -> None:
+        self.data.get_subject_data.cache_clear()
+        rel = mock.Mock()
+        rel.fetch.side_effect = RuntimeError("boom")
+        trialset = mock.Mock()
+        trialset.__and__ = mock.Mock(return_value=rel)
+        trialset_cls = mock.Mock(return_value=trialset)
+
+        with (
+            mock.patch.object(self.data.DecisionTask, "TrialSet", trialset_cls),
+            mock.patch.object(
+                self.data.pd, "DataFrame", side_effect=lambda x: {"source": x}
+            ),
+            mock.patch.object(self.data, "_perf_log") as perf_log,
+        ):
+            result = self.data.get_subject_data("subject-b")
+
+        self.assertEqual(result, {"source": rel})
+        perf_log.assert_called_once()
+        self.assertEqual(perf_log.call_args.args[0], "get_subject_data_fallback")
+
+    def test_get_session_trials_fetches_by_subject_and_session(self) -> None:
+        self.data.get_session_trials.cache_clear()
+
+        class _Rel:
+            def __init__(self) -> None:
+                self.restriction = None
+                self.order_by = None
+                self.Trial = object()
+                self.TrialParameters = object()
+
+            def __mul__(self, _other):
+                return self
+
+            def __and__(self, restriction):
+                self.restriction = restriction
+                return self
+
+            def fetch(self, order_by=None):
+                self.order_by = order_by
+                return [{"trial_num": 1}]
+
+        rel = _Rel()
+        with (
+            mock.patch.object(self.data, "Chipmunk", rel),
+            mock.patch.object(
+                self.data.pd, "DataFrame", side_effect=lambda rows: {"rows": rows}
+            ),
+        ):
+            result = self.data.get_session_trials("subject-a", "20260101_010101")
+
+        self.assertEqual(result, {"rows": [{"trial_num": 1}]})
+        self.assertEqual(
+            rel.restriction,
+            "subject_name = 'subject-a' AND session_name = '20260101_010101'",
+        )
+        self.assertEqual(rel.order_by, "trial_num")
+
+    def test_get_subject_water_converts_values_to_float(self) -> None:
+        self.data.get_subject_water.cache_clear()
+
+        class _Rel:
+            def __init__(self) -> None:
+                self.restriction = None
+
+            def __mul__(self, _other):
+                return self
+
+            def __and__(self, restriction):
+                self.restriction = restriction
+                return self
+
+            def fetch(self, *_args, **_kwargs):
+                return [
+                    {"session_name": "s1", "water_volume": "1.5"},
+                    {"session_name": "s2", "water_volume": 2},
+                ]
+
+        rel = _Rel()
+        with (
+            mock.patch.object(self.data, "DecisionTask", rel),
+            mock.patch.object(self.data, "Watering", object()),
+        ):
+            result = self.data.get_subject_water("subject-a")
+
+        self.assertEqual(result, {"s1": 1.5, "s2": 2.0})
+        self.assertEqual(rel.restriction, "subject_name = 'subject-a'")
+
+    def test_session_metrics_returns_none_for_empty_trials(self) -> None:
+        self.data.session_metrics.cache_clear()
+
+        class _EmptyTrials:
+            empty = True
+
+        with (
+            mock.patch.object(self.data, "get_session_trials", return_value=_EmptyTrials()),
+            mock.patch.object(self.data, "_perf_log") as perf_log,
+        ):
+            result = self.data.session_metrics("subject-a", "20260101_010101")
+
+        self.assertIsNone(result)
+        perf_log.assert_called_once()
+        self.assertEqual(perf_log.call_args.args[0], "session_metrics")
+
+    def test_multisession_metrics_returns_none_for_empty_subject_data(self) -> None:
+        self.data.multisession_metrics.cache_clear()
+
+        class _EmptySubjectData:
+            empty = True
+
+            def copy(self):
+                return self
+
+        with (
+            mock.patch.object(
+                self.data, "get_subject_data", return_value=_EmptySubjectData()
+            ),
+            mock.patch.object(self.data, "_perf_log") as perf_log,
+        ):
+            result = self.data.multisession_metrics("subject-a", sessions_back=5)
+
+        self.assertIsNone(result)
+        perf_log.assert_called_once()
+        self.assertEqual(perf_log.call_args.args[0], "multisession_metrics")
