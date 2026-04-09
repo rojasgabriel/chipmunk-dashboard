@@ -404,11 +404,12 @@ def create_app() -> Dash:
 
     # -- callbacks ------------------------------------------------------------
 
-    def _sessions_on_date(subject: str, date_val: str) -> str | None:
+    def _sessions_on_date(sessions_list: list[str], date_val: str) -> str | None:
         """Return the latest session name for a subject on a given calendar date.
 
         Args:
-            subject: Subject name to look up.
+            sessions_list: Pre-fetched list of session names for the subject,
+                in ascending chronological order.
             date_val: Date in ``YYYY-MM-DD`` format.
 
         Returns:
@@ -416,7 +417,7 @@ def create_app() -> Dash:
             exists on that date for the subject.
         """
         raw_date = date_val.replace("-", "")  # YYYYMMDD
-        day_sessions = [s for s in get_sessions(subject) if s.startswith(raw_date)]
+        day_sessions = [s for s in sessions_list if s.startswith(raw_date)]
         return day_sessions[-1] if day_sessions else None
 
     def _filter_subjects(
@@ -424,19 +425,22 @@ def create_app() -> Dash:
     ) -> list[str]:
         """Return subjects filtered to those present in the current options list.
 
-        When ``options`` is empty or ``None`` the original list is returned
-        unchanged so that callbacks remain functional before the first options
-        callback fires.
+        ``None`` is treated as "options not yet populated" and the original list
+        is returned unchanged, so callbacks remain functional before the first
+        options callback fires.  An explicit empty list (``[]``) means the
+        selected date has no sessions, so ``[]`` is returned to prevent stale
+        selections from producing data for invisible subjects.
 
         Args:
             subjects: Currently selected subject names.
             options: Current checklist options, or ``None`` before first render.
 
         Returns:
-            The subset of ``subjects`` that appear in ``options``, or the full
-            ``subjects`` list when ``options`` is falsy.
+            The subset of ``subjects`` that appear in ``options``, an empty list
+            when ``options`` is ``[]``, or the full ``subjects`` list when
+            ``options`` is ``None``.
         """
-        if not options:
+        if options is None:
             return subjects
         valid = set(options)
         return [s for s in subjects if s in valid]
@@ -733,7 +737,7 @@ def create_app() -> Dash:
                 ses = session_name
             elif session_date:
                 # Other subjects (or first with no time selected): resolve from date
-                ses = _sessions_on_date(subj, session_date)
+                ses = _sessions_on_date(sessions_list, session_date)
             else:
                 ses = sessions_list[-1] if sessions_list else None
             if not ses:
