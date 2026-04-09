@@ -126,7 +126,7 @@ runtime behavior without modifying source code.
 |----------|---------|-------------|
 | `CHIPMUNK_CACHE_TTL_SECONDS` | `1800` | Lifetime (seconds) for each LRU cache bucket in `data.py`. Reduce for faster data refresh during development. |
 | `CHIPMUNK_PROFILE` | `0` | Set to `1` to emit per-call timing logs (milliseconds) for every data-layer and callback function. |
-| `CHIPMUNK_PREWARM` | `1` | Set to `0` to disable background cache prewarming of multi-session metrics. Prewarming is triggered when subjects are selected in the multi-session tab, not at server startup. |
+| `CHIPMUNK_PREWARM` | `1` | Set to `0` to disable background cache prewarming of multi-session metrics. Prewarming is triggered when subjects are selected, not at server startup. |
 
 Example:
 
@@ -150,8 +150,8 @@ helps avoid confusion when extending the project.
 
 ### Configurable by editing `app.py`
 
-- **Theme colours** — the `_THEME` dict at the top of `app.py` controls every
-  background, border, accent, and text colour used in the UI.
+- **Theme colors** — the `_THEME` dict at the top of `app.py` controls every
+  background, border, accent, and text color used in the UI.
 - **Plot dimensions** — `_PLOT_H` (plot height) and `_MAX_W` (max plot width).
 - **Layout margins / spacing** — `_MARGIN` and the shared `_layout()` helper.
 - **Auto-refresh interval** — the `dcc.Interval` `interval` parameter (default
