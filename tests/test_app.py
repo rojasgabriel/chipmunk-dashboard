@@ -67,6 +67,7 @@ def _import_app_module():
     fake_dash.html = _ComponentNamespace()
     fake_dash.Input = _IO
     fake_dash.Output = _IO
+    fake_dash.State = _IO
 
     fake_plotly = types.ModuleType("plotly")
     fake_plotly.__path__ = []
@@ -81,6 +82,7 @@ def _import_app_module():
     fake_data.get_all_subjects = mock.Mock(return_value=["subject-a", "subject-b"])
     fake_data.get_subjects_with_recent_sessions = mock.Mock(return_value=set())
     fake_data.get_sessions = mock.Mock(return_value=[])
+    fake_data.get_subjects_for_date = mock.Mock(return_value=[])
     fake_data.session_metrics = mock.Mock(return_value=None)
     fake_data.multisession_metrics = mock.Mock(return_value=None)
     fake_data.prewarm_multisession_cache = mock.Mock()
@@ -229,7 +231,7 @@ class TestAppUtilities(unittest.TestCase):
         update_single = app.callbacks["_update_single"]
 
         with mock.patch.object(self.appmod, "get_sessions", return_value=[]):
-            figures = update_single(["subject-a"], [], None, 0)
+            figures = update_single(["subject-a"], [], None, 0, None)
 
         self.assertEqual(len(figures), 10)
         self.assertEqual(

@@ -5,13 +5,14 @@ from typing import Any, cast
 import os
 import time
 import logging
-from dash import Dash, dcc, html, Input, Output
+from dash import Dash, dcc, html, Input, Output, State
 import plotly.graph_objects as go
 import plotly.express as px
 from .data import (
     get_all_subjects,
     get_subjects_with_recent_sessions,
     get_sessions,
+    get_subjects_for_date,
     session_metrics,
     multisession_metrics,
     prewarm_multisession_cache,
@@ -401,6 +402,53 @@ def create_app() -> Dash:
     )
 
     # -- callbacks ------------------------------------------------------------
+
+    def _sessions_on_date(subject: str, date_val: str) -> str | None:
+        """Return the latest session name for a subject on a given calendar date.
+
+        Args:
+            subject: Subject name to look up.
+            date_val: Date in ``YYYY-MM-DD`` format.
+
+        Returns:
+            The latest ``session_name`` for that day, or ``None`` if no session
+            exists on that date for the subject.
+        """
+        raw_date = date_val.replace("-", "")  # YYYYMMDD
+        day_sessions = [s for s in get_sessions(subject) if s.startswith(raw_date)]
+        return day_sessions[-1] if day_sessions else None
+
+    # Subject options — filtered to date when one is selected
+    @app.callback(
+        Output("subjects", "options"),
+        Input("session-date", "date"),
+        Input("auto-refresh", "n_intervals"),
+    )
+    def _update_subject_options(date_val, n_intervals):
+        """Populate the subjects checklist, filtered to the selected date.
+
+        Callback Inputs:
+            - ``session-date.date``
+            - ``auto-refresh.n_intervals``
+
+        Callback Outputs:
+            - ``subjects.options``
+
+        Args:
+            date_val: Selected date in ``YYYY-MM-DD`` format, or ``None``.
+            n_intervals: Auto-refresh tick counter (unused except as trigger).
+
+        Returns:
+            A list of subject name strings. When a date is selected, only
+            subjects with at least one session on that date are included.
+            Falls back to the full subject list when no date is set.
+        """
+        if date_val:
+            raw_date = date_val.replace("-", "")
+            filtered = get_subjects_for_date(raw_date)
+            return filtered if filtered else get_all_subjects()
+        return get_all_subjects()
+
     # Session Date & Time Logic
     @app.callback(
         Output("session-date", "date"),
@@ -412,7 +460,7 @@ def create_app() -> Dash:
         Input("auto-refresh", "n_intervals"),
     )
     def _update_date_options(subjects_recent, subjects_older, n_intervals):
-        """Update date-picker bounds and default date for the active subject.
+        """Update date-picker bounds spanning all selected subjects.
 
         Callback Inputs:
             - ``subjects-recent.value``
@@ -441,16 +489,12 @@ def create_app() -> Dash:
         if not subjects:
             return None, None, None, None
 
-        sessions = get_sessions(subjects[0])
-        if not sessions:
-            return None, None, None, None
-
-        # Parse dates from session names (YYYYMMDD_HHMMSS)
+        # Union date ranges across all selected subjects
         dates = []
-        for s in sessions:
-            if len(s) >= 8:
-                d_str = f"{s[:4]}-{s[4:6]}-{s[6:8]}"
-                dates.append(d_str)
+        for subj in subjects:
+            for s in get_sessions(subj):
+                if len(s) >= 8:
+                    dates.append(f"{s[:4]}-{s[4:6]}-{s[6:8]}")
 
         if not dates:
             return None, None, None, None
@@ -592,8 +636,9 @@ def create_app() -> Dash:
         Input("subjects-older", "value"),
         Input("session-time", "value"),
         Input("auto-refresh", "n_intervals"),
+        State("session-date", "date"),
     )
-    def _update_single(subjects_recent, subjects_older, session_name, n_intervals):
+    def _update_single(subjects_recent, subjects_older, session_name, n_intervals, session_date):
         """Render all single-session figures for the current selection.
 
         Callback Inputs:
@@ -601,6 +646,9 @@ def create_app() -> Dash:
             - ``subjects-older.value``
             - ``session-time.value``
             - ``auto-refresh.n_intervals``
+
+        Callback State:
+            - ``session-date.date``
 
         Callback Outputs:
             Ten figures for outcomes, psychometric/chronometric, performance,
@@ -611,6 +659,9 @@ def create_app() -> Dash:
             subjects_older: Selected older subject names.
             session_name: Selected session name for the first subject.
             n_intervals: Auto-refresh tick counter (unused except as trigger).
+            session_date: Currently selected date in ``YYYY-MM-DD`` format, or
+                ``None``. When set and multiple subjects are selected, each
+                additional subject resolves its session from this date.
 
         Returns:
             A 10-item tuple of Plotly figures in callback output order.
@@ -648,11 +699,14 @@ def create_app() -> Dash:
             c = COLORS[i % len(COLORS)]
             grp = subj
             sessions_list = sessions_by_subject[subj]
-            ses = (
-                session_name
-                if i == 0 and session_name
-                else (sessions_list[-1] if sessions_list else None)
-            )
+            if i == 0 and session_name:
+                # First subject: use the session selected in the time dropdown
+                ses = session_name
+            elif session_date:
+                # Other subjects (or first with no time selected): resolve from date
+                ses = _sessions_on_date(subj, session_date)
+            else:
+                ses = sessions_list[-1] if sessions_list else None
             if not ses:
                 continue
             sm = session_metrics(subj, ses)
