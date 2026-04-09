@@ -152,7 +152,7 @@ helps avoid confusion when extending the project.
 
 - **Theme colors** — the `_THEME` dict at the top of `app.py` controls every
   background, border, accent, and text color used in the UI.
-- **Plot dimensions** — `_PLOT_H` (plot height) and `_MAX_W` (max plot width).
+- **Plot dimensions** — `_PLOT_H` (plot height in pixels).
 - **Layout margins / spacing** — `_MARGIN` and the shared `_layout()` helper.
 - **Auto-refresh interval** — the `dcc.Interval` `interval` parameter (default
   60 minutes).
