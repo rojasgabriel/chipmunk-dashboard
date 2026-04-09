@@ -93,8 +93,9 @@ uv run ruff format .
 uv run ruff check --fix .
 ```
 
-There are no additional style rules beyond what ruff enforces. Match the docstring
-style (Google-style Args / Returns / Side Effects) used in the existing modules.
+Beyond ruff, the pre-commit hooks also enforce trailing-whitespace removal and
+end-of-file newlines (via `pre-commit-hooks`). Match the docstring style
+(Google-style Args / Returns / Side Effects) used in the existing modules.
 
 ---
 
@@ -196,11 +197,13 @@ This walkthrough adds a **cumulative rewards** line plot to the Single Session
 section. It demonstrates every file you need to touch and why. The same pattern
 applies to the Multi Session section — differences are noted inline.
 
-The four steps are always:
+The four implementation steps are always:
 1. Compute the metric in `data.py`
 2. Register a new graph component in the layout (`app.py`)
 3. Add the matching `Output` to the callback decorator (`app.py`)
 4. Build and return the figure in the callback body (`app.py`)
+
+A fifth step (verify) confirms everything works with a live reload.
 
 ---
 
