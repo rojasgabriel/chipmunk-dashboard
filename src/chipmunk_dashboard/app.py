@@ -129,7 +129,8 @@ def create_app() -> Dash:
         A fully configured Dash app with layout, callbacks, and styles.
 
     Side Effects:
-        Reads subjects from the data layer during app construction.
+        No data is read during app construction; subject options are populated
+        on first callback execution.
     """
     subjects = get_all_subjects()
     recent_subjects = get_subjects_with_recent_sessions()
@@ -445,8 +446,7 @@ def create_app() -> Dash:
         """
         if date_val:
             raw_date = date_val.replace("-", "")
-            filtered = get_subjects_for_date(raw_date)
-            return filtered if filtered else get_all_subjects()
+            return get_subjects_for_date(raw_date)
         return get_all_subjects()
 
     # Session Date & Time Logic
@@ -467,6 +467,9 @@ def create_app() -> Dash:
             - ``subjects-older.value``
             - ``auto-refresh.n_intervals``
 
+        Callback State:
+            - ``subjects.options``
+
         Callback Outputs:
             - ``session-date.date``
             - ``session-date.min_date_allowed``
@@ -477,7 +480,6 @@ def create_app() -> Dash:
             subjects_recent: Selected recent subject names.
             subjects_older: Selected older subject names.
             n_intervals: Auto-refresh tick counter (unused except as trigger).
-
         Returns:
             A tuple with selected date and allowed date bounds, or ``None`` values
             when no sessions are available.
@@ -489,18 +491,20 @@ def create_app() -> Dash:
         if not subjects:
             return None, None, None, None
 
-        # Union date ranges across all selected subjects
-        dates = []
+        all_mins: list[str] = []
+        all_maxs: list[str] = []
         for subj in subjects:
             for s in get_sessions(subj):
                 if len(s) >= 8:
-                    dates.append(f"{s[:4]}-{s[4:6]}-{s[6:8]}")
+                    d = f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+                    all_mins.append(d)
+                    all_maxs.append(d)
 
-        if not dates:
+        if not all_mins or not all_maxs:
             return None, None, None, None
 
-        min_d = min(dates)
-        max_d = max(dates)
+        min_d = min(all_mins)
+        max_d = max(all_maxs)
         prewarm_multisession_cache(subjects, sessions_back=30, start_date=max_d)
         return max_d, min_d, max_d, max_d  # Default to latest
 
@@ -518,6 +522,9 @@ def create_app() -> Dash:
             - ``session-date.date``
             - ``subjects-recent.value``
             - ``subjects-older.value``
+
+        Callback State:
+            - ``subjects.options``
 
         Callback Outputs:
             - ``session-time.options``
@@ -649,6 +656,7 @@ def create_app() -> Dash:
 
         Callback State:
             - ``session-date.date``
+            - ``subjects.options``
 
         Callback Outputs:
             Ten figures for outcomes, psychometric/chronometric, performance,
@@ -662,7 +670,6 @@ def create_app() -> Dash:
             session_date: Currently selected date in ``YYYY-MM-DD`` format, or
                 ``None``. When set and multiple subjects are selected, each
                 additional subject resolves its session from this date.
-
         Returns:
             A 10-item tuple of Plotly figures in callback output order.
 
@@ -1201,6 +1208,9 @@ def create_app() -> Dash:
             - ``smooth-window.value``
             - ``auto-refresh.n_intervals``
 
+        Callback State:
+            - ``subjects.options``
+
         Callback Outputs:
             Eight figures for performance, EW rate, bias, medians, trial counts,
             and water earned.
@@ -1213,7 +1223,6 @@ def create_app() -> Dash:
             smooth_vals: Smoothing toggle values from checklist.
             smooth_window: Moving-average window size when smoothing is enabled.
             n_intervals: Auto-refresh tick counter (unused except as trigger).
-
         Returns:
             An 8-item tuple of Plotly figures in callback output order.
 
@@ -1224,6 +1233,7 @@ def create_app() -> Dash:
         start = time.perf_counter()
         n = 8
         subjects = (subjects_recent or []) + (subjects_older or [])
+
         if not subjects:
             e = _empty_fig()
             _perf_log("_update_multi", start, subjects=0)
