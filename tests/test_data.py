@@ -185,3 +185,52 @@ class TestDataUtilities(unittest.TestCase):
 
         self.assertEqual(len(_ImmediateThread.created), 0)
         self.assertEqual(self.data._PREWARM_INFLIGHT, set())
+
+    def test_get_trials_for_sessions_returns_empty_for_no_session_names(self) -> None:
+        self.assertEqual(self.data.get_trials_for_sessions("subject-a", tuple()), {})
+
+    def test_get_wait_medians_for_sessions_returns_empty_for_no_session_names(self) -> None:
+        self.assertEqual(self.data.get_wait_medians_for_sessions("subject-a", tuple()), {})
+
+    def test_perf_log_skips_when_profiling_disabled(self) -> None:
+        with (
+            mock.patch.object(self.data, "_PROFILE_PERF", False),
+            mock.patch.object(self.data._LOGGER, "info") as log_info,
+        ):
+            self.data._perf_log("metric", 0.0, key="value")
+        log_info.assert_not_called()
+
+    def test_perf_log_logs_when_profiling_enabled(self) -> None:
+        with (
+            mock.patch.object(self.data, "_PROFILE_PERF", True),
+            mock.patch.object(self.data.time, "perf_counter", return_value=1.25),
+            mock.patch.object(self.data._LOGGER, "info") as log_info,
+        ):
+            self.data._perf_log("metric", 1.0, key="value")
+        log_info.assert_called_once()
+        self.assertIn("perf metric", log_info.call_args[0][0])
+        self.assertIn("key=value", log_info.call_args[0][0])
+
+    def test_get_all_subjects_returns_sorted_unique_values(self) -> None:
+        trialset = mock.Mock()
+        trialset.fetch.return_value = ["z", "a", "z", "b"]
+        trialset_cls = mock.Mock(return_value=trialset)
+
+        with mock.patch.object(self.data.DecisionTask, "TrialSet", trialset_cls):
+            result = self.data.get_all_subjects()
+
+        self.assertEqual(result, ["a", "b", "z"])
+        trialset.fetch.assert_called_once_with("subject_name")
+
+    def test_get_sessions_returns_list_from_fetch(self) -> None:
+        rel = mock.Mock()
+        rel.fetch.return_value = ("20260101_010101", "20260102_010101")
+        trialset = mock.Mock()
+        trialset.__and__ = mock.Mock(return_value=rel)
+        trialset_cls = mock.Mock(return_value=trialset)
+
+        with mock.patch.object(self.data.DecisionTask, "TrialSet", trialset_cls):
+            result = self.data.get_sessions("subject-a")
+
+        self.assertEqual(result, ["20260101_010101", "20260102_010101"])
+        rel.fetch.assert_called_once_with("session_name", order_by="session_name")

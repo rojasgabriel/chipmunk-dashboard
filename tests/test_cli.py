@@ -62,3 +62,33 @@ class TestCli(unittest.TestCase):
         timer_instance.start.assert_called_once()
         app.run.assert_called_once_with(host="0.0.0.0", port=8050, debug=True)
 
+    def test_run_command_does_not_open_browser_in_debug_parent(self) -> None:
+        app = _FakeApp()
+        self._install_fake_app_module(app)
+
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(sys, "argv", ["chipmunk-dashboard", "run", "--debug"]),
+            mock.patch("chipmunk_dashboard.cli.threading.Timer") as timer_cls,
+        ):
+            cli.main()
+
+        timer_cls.assert_not_called()
+        app.run.assert_called_once_with(host="localhost", port=8050, debug=True)
+
+    def test_run_command_opens_browser_when_not_debug(self) -> None:
+        app = _FakeApp()
+        self._install_fake_app_module(app)
+        timer_instance = mock.Mock()
+
+        with (
+            mock.patch.object(sys, "argv", ["chipmunk-dashboard", "run"]),
+            mock.patch(
+                "chipmunk_dashboard.cli.threading.Timer", return_value=timer_instance
+            ) as timer_cls,
+        ):
+            cli.main()
+
+        timer_cls.assert_called_once()
+        timer_instance.start.assert_called_once()
+        app.run.assert_called_once_with(host="localhost", port=8050, debug=False)
