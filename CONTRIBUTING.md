@@ -24,7 +24,7 @@ and how to submit changes.
 ```
 chipmunk-dashboard/
 ├── src/chipmunk_dashboard/
-│   ├── __init__.py      # Package version / public surface
+│   ├── __init__.py      # Empty marker file (version is declared in pyproject.toml)
 │   ├── cli.py           # CLI entry-point (`chipmunk-dashboard run`)
 │   ├── app.py           # Dash layout, callbacks, and figure helpers
 │   └── data.py          # Database queries, caching, and metric computation
