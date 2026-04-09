@@ -119,13 +119,13 @@ uv run chipmunk-dashboard run --no-open
 ## Environment variables
 
 These variables can be set in your shell before starting the server to change
-runtime behaviour without modifying source code.
+runtime behavior without modifying source code.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CHIPMUNK_CACHE_TTL_SECONDS` | `1800` | Lifetime (seconds) for each LRU cache bucket in `data.py`. Reduce for faster data refresh during development. |
 | `CHIPMUNK_PROFILE` | `0` | Set to `1` to emit per-call timing logs (milliseconds) for every data-layer and callback function. |
-| `CHIPMUNK_PREWARM` | `1` | Set to `0` to disable background cache prewarming of multi-session metrics on startup. |
+| `CHIPMUNK_PREWARM` | `1` | Set to `0` to disable background cache prewarming of multi-session metrics. Prewarming is triggered when subjects are selected in the multi-session tab, not at server startup. |
 
 Example:
 
