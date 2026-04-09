@@ -9,6 +9,7 @@ def _import_data_module():
     sys.modules.pop("chipmunk_dashboard.data", None)
 
     fake_labdata = types.ModuleType("labdata")
+    fake_labdata.__path__ = []
     fake_schema = types.ModuleType("labdata.schema")
 
     class _DecisionTask:
@@ -238,7 +239,7 @@ class TestDataUtilities(unittest.TestCase):
         rel = mock.Mock()
         rel.fetch.return_value = ("20260101_010101", "20260102_010101")
         trialset = mock.MagicMock()
-        trialset.__and__ = mock.Mock(return_value=rel)
+        trialset.__and__.return_value = rel
         trialset_cls = mock.Mock(return_value=trialset)
 
         with mock.patch.object(self.data.DecisionTask, "TrialSet", trialset_cls):
@@ -253,7 +254,7 @@ class TestDataUtilities(unittest.TestCase):
         rel = mock.Mock()
         rel.fetch.return_value = rows
         trialset = mock.MagicMock()
-        trialset.__and__ = mock.Mock(return_value=rel)
+        trialset.__and__.return_value = rel
         trialset_cls = mock.Mock(return_value=trialset)
 
         with (
@@ -276,7 +277,7 @@ class TestDataUtilities(unittest.TestCase):
         rel = mock.Mock()
         rel.fetch.side_effect = RuntimeError("boom")
         trialset = mock.MagicMock()
-        trialset.__and__ = mock.Mock(return_value=rel)
+        trialset.__and__.return_value = rel
         trialset_cls = mock.Mock(return_value=trialset)
 
         with (

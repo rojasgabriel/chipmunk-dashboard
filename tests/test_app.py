@@ -69,6 +69,7 @@ def _import_app_module():
     fake_dash.Output = _IO
 
     fake_plotly = types.ModuleType("plotly")
+    fake_plotly.__path__ = []
     fake_go = types.ModuleType("plotly.graph_objects")
     fake_go.Figure = _Figure
     fake_px = types.ModuleType("plotly.express")
