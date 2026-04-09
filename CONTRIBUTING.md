@@ -124,8 +124,8 @@ runtime behavior without modifying source code.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CHIPMUNK_CACHE_TTL_SECONDS` | `1800` | Lifetime (seconds) for each LRU cache bucket in `data.py`. Reduce for faster data refresh during development. |
-| `CHIPMUNK_PROFILE` | `0` | Set to `1` to emit per-call timing logs (milliseconds) for every data-layer and callback function. |
+| `CHIPMUNK_CACHE_TTL_SECONDS` | `1800` | Lifetime (seconds) for each TTL time bucket in `data.py` (TTL is enforced via a hidden time-bucket argument to `lru_cache`). Reduce for faster data refresh during development. |
+| `CHIPMUNK_PROFILE` | `0` | Set to `1` to emit per-call timing logs (milliseconds) for the data-layer and callback functions that call `_perf_log(...)`. |
 | `CHIPMUNK_PREWARM` | `1` | Set to `0` to disable background cache prewarming of multi-session metrics. Prewarming is triggered when subjects are selected, not at server startup. |
 
 Example:
