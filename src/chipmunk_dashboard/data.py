@@ -343,12 +343,13 @@ def get_subjects_for_date(date_str: str) -> list[str]:
 
     Returns:
         A sorted list of subject names with sessions starting on that date.
-        Returns an empty list when the date string is empty or no matches exist.
+        Returns an empty list when the date string is empty, not exactly 8 digits,
+        or no matches exist.
 
     Side Effects:
         Executes a database query under ``_DB_LOCK``.
     """
-    if not date_str:
+    if not date_str or not date_str.isdigit() or len(date_str) != 8:
         return []
     with _DB_LOCK:
         rows = (DecisionTask.TrialSet() & f"session_name LIKE '{date_str}%'").fetch(
