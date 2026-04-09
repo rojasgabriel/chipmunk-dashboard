@@ -419,6 +419,28 @@ def create_app() -> Dash:
         day_sessions = [s for s in get_sessions(subject) if s.startswith(raw_date)]
         return day_sessions[-1] if day_sessions else None
 
+    def _filter_subjects(
+        subjects: list[str], options: list[str] | None
+    ) -> list[str]:
+        """Return subjects filtered to those present in the current options list.
+
+        When ``options`` is empty or ``None`` the original list is returned
+        unchanged so that callbacks remain functional before the first options
+        callback fires.
+
+        Args:
+            subjects: Currently selected subject names.
+            options: Current checklist options, or ``None`` before first render.
+
+        Returns:
+            The subset of ``subjects`` that appear in ``options``, or the full
+            ``subjects`` list when ``options`` is falsy.
+        """
+        if not options:
+            return subjects
+        valid = set(options)
+        return [s for s in subjects if s in valid]
+
     # Subject options — filtered to date when one is selected
     @app.callback(
         Output("subjects", "options"),
