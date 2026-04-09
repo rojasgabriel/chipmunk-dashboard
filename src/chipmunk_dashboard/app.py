@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from .data import (
     get_all_subjects,
+    get_subjects_with_recent_sessions,
     get_sessions,
     session_metrics,
     multisession_metrics,
@@ -130,6 +131,7 @@ def create_app() -> Dash:
         Reads subjects from the data layer during app construction.
     """
     subjects = get_all_subjects()
+    recent_subjects = get_subjects_with_recent_sessions()
     app = Dash(
         __name__,
         title="chipmunk dashboard",
@@ -141,6 +143,29 @@ def create_app() -> Dash:
 
     # Auto-refresh interval (60 minutes)
     auto_refresh = dcc.Interval(id="auto-refresh", interval=60 * 60 * 1000)
+
+    def _build_subject_options(all_subjects: list[str], recent: set[str]) -> list[dict]:
+        """Build checklist options that sort recent subjects first.
+
+        Subjects with a session in the last 14 days are shown at the top of
+        the list and prefixed with a star (★) marker so they are immediately
+        visible without scrolling.
+
+        Args:
+            all_subjects: Full sorted list of subject names.
+            recent: Set of subject names with recent sessions.
+
+        Returns:
+            A list of ``{"label": str, "value": str}`` dicts ordered so that
+            recent subjects (with the ★ prefix) come before older ones.
+        """
+        recent_opts = [
+            {"label": f"★ {s}", "value": s} for s in sorted(all_subjects) if s in recent
+        ]
+        older_opts = [
+            {"label": s, "value": s} for s in sorted(all_subjects) if s not in recent
+        ]
+        return recent_opts + older_opts
 
     # -- helpers --------------------------------------------------------------
     def _graph(gid: str) -> dcc.Graph:
@@ -182,9 +207,17 @@ def create_app() -> Dash:
         [
             html.Label("Subjects", style={"fontWeight": "bold"}),
             html.Div(
+                "★ = session in last 2 weeks",
+                style={
+                    "fontSize": "11px",
+                    "color": _THEME["muted"],
+                    "marginBottom": "2px",
+                },
+            ),
+            html.Div(
                 dcc.Checklist(
                     id="subjects",
-                    options=subjects,
+                    options=_build_subject_options(subjects, recent_subjects),
                     value=[],
                     style={"display": "flex", "flexDirection": "column", "gap": "2px"},
                     inputStyle={"marginRight": "6px", "transform": "scale(1.2)"},
@@ -456,6 +489,29 @@ def create_app() -> Dash:
             An empty list to clear the subject checklist value.
         """
         return []
+
+    @app.callback(
+        Output("subjects", "options"),
+        Input("auto-refresh", "n_intervals"),
+    )
+    def _update_subject_options(n_intervals):
+        """Refresh the subject checklist options on each auto-refresh tick.
+
+        Callback Inputs:
+            - ``auto-refresh.n_intervals``
+
+        Callback Outputs:
+            - ``subjects.options``
+
+        Args:
+            n_intervals: Auto-refresh tick counter.
+
+        Returns:
+            Updated checklist options with recent subjects (★) sorted first.
+        """
+        all_subjs = get_all_subjects()
+        recent = get_subjects_with_recent_sessions()
+        return _build_subject_options(all_subjs, recent)
 
     # ── Single-session plots ─────────────────────────────────────────────────
     @app.callback(

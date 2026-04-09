@@ -10,6 +10,7 @@ import threading
 import time
 import os
 import logging
+from datetime import date, timedelta
 from typing import Any, Callable, Protocol, cast
 
 
@@ -124,6 +125,37 @@ def get_all_subjects() -> list[str]:
     with _DB_LOCK:
         subjects = DecisionTask.TrialSet().fetch("subject_name")
     return sorted(set(subjects))
+
+
+@_ttl_lru_cache(maxsize=1)
+def get_subjects_with_recent_sessions(days: int = 14) -> set[str]:
+    """Return subjects with at least one session recorded in the last ``days`` days.
+
+    Session names are expected to follow the ``YYYYMMDD_HHMMSS`` format; any
+    session whose leading 8-character date component is on or after the cutoff
+    date counts as recent.
+
+    Args:
+        days: Number of days to look back from today (default: 14).
+
+    Returns:
+        A set of subject names that have had at least one session in the last
+        ``days`` days.
+
+    Side Effects:
+        Executes a database query under ``_DB_LOCK``.
+    """
+    cutoff = (date.today() - timedelta(days=days)).strftime("%Y%m%d")
+    with _DB_LOCK:
+        rows = DecisionTask.TrialSet().fetch(
+            "subject_name", "session_name", as_dict=True
+        )
+    recent: set[str] = set()
+    for row in rows:
+        session = str(row["session_name"])
+        if len(session) >= 8 and session[:8] >= cutoff:
+            recent.add(str(row["subject_name"]))
+    return recent
 
 
 @_ttl_lru_cache(maxsize=64)
@@ -319,6 +351,7 @@ def clear_data_cache() -> None:
         and computed metrics so subsequent reads hit the database again.
     """
     get_all_subjects.cache_clear()
+    get_subjects_with_recent_sessions.cache_clear()
     get_subject_data.cache_clear()
     get_session_trials.cache_clear()
     get_subject_water.cache_clear()
