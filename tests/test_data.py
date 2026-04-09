@@ -92,6 +92,7 @@ class _DeferredThread:
 
 class TestDataUtilities(unittest.TestCase):
     def setUp(self) -> None:
+        self.addCleanup(lambda: sys.modules.pop("chipmunk_dashboard.data", None))
         self.data = _import_data_module()
 
     def test_ttl_lru_cache_reuses_value_within_bucket_and_expires(self) -> None:
@@ -236,7 +237,7 @@ class TestDataUtilities(unittest.TestCase):
     def test_get_sessions_returns_list_from_fetch(self) -> None:
         rel = mock.Mock()
         rel.fetch.return_value = ("20260101_010101", "20260102_010101")
-        trialset = mock.Mock()
+        trialset = mock.MagicMock()
         trialset.__and__ = mock.Mock(return_value=rel)
         trialset_cls = mock.Mock(return_value=trialset)
 
@@ -251,7 +252,7 @@ class TestDataUtilities(unittest.TestCase):
         rows = [{"subject_name": "subject-a", "session_name": "20260101_010101"}]
         rel = mock.Mock()
         rel.fetch.return_value = rows
-        trialset = mock.Mock()
+        trialset = mock.MagicMock()
         trialset.__and__ = mock.Mock(return_value=rel)
         trialset_cls = mock.Mock(return_value=trialset)
 
@@ -274,7 +275,7 @@ class TestDataUtilities(unittest.TestCase):
         self.data.get_subject_data.cache_clear()
         rel = mock.Mock()
         rel.fetch.side_effect = RuntimeError("boom")
-        trialset = mock.Mock()
+        trialset = mock.MagicMock()
         trialset.__and__ = mock.Mock(return_value=rel)
         trialset_cls = mock.Mock(return_value=trialset)
 

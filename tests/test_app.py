@@ -100,6 +100,7 @@ def _import_app_module():
 
 class TestAppUtilities(unittest.TestCase):
     def setUp(self) -> None:
+        self.addCleanup(lambda: sys.modules.pop("chipmunk_dashboard.app", None))
         self.appmod = _import_app_module()
 
     def test_empty_fig_builds_placeholder_annotation(self) -> None:
