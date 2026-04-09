@@ -16,24 +16,31 @@ class TestCli(unittest.TestCase):
     def _install_fake_app_module(self, app: _FakeApp) -> None:
         fake_mod = types.ModuleType("chipmunk_dashboard.app")
         fake_mod.create_app = mock.Mock(return_value=app)
-        self._patcher = mock.patch.dict(sys.modules, {"chipmunk_dashboard.app": fake_mod})
+        self._patcher = mock.patch.dict(
+            sys.modules, {"chipmunk_dashboard.app": fake_mod}
+        )
         self._patcher.start()
         self.addCleanup(self._patcher.stop)
 
     def test_main_without_command_prints_help(self) -> None:
-        with mock.patch.object(sys, "argv", ["chipmunk-dashboard"]), mock.patch(
-            "argparse.ArgumentParser.print_help"
-        ) as print_help:
+        with (
+            mock.patch.object(sys, "argv", ["chipmunk-dashboard"]),
+            mock.patch("argparse.ArgumentParser.print_help") as print_help,
+        ):
             cli.main()
         print_help.assert_called_once()
 
-    def test_run_command_starts_server_without_opening_browser_when_no_open(self) -> None:
+    def test_run_command_starts_server_without_opening_browser_when_no_open(
+        self,
+    ) -> None:
         app = _FakeApp()
         self._install_fake_app_module(app)
 
         with (
             mock.patch.object(
-                sys, "argv", ["chipmunk-dashboard", "run", "--no-open", "--port", "9000"]
+                sys,
+                "argv",
+                ["chipmunk-dashboard", "run", "--no-open", "--port", "9000"],
             ),
             mock.patch("chipmunk_dashboard.cli.webbrowser.open") as open_browser,
             mock.patch("chipmunk_dashboard.cli.threading.Timer") as timer_cls,
@@ -52,9 +59,13 @@ class TestCli(unittest.TestCase):
         with (
             mock.patch.dict(os.environ, {"WERKZEUG_RUN_MAIN": "true"}, clear=False),
             mock.patch.object(
-                sys, "argv", ["chipmunk-dashboard", "run", "--debug", "--host", "0.0.0.0"]
+                sys,
+                "argv",
+                ["chipmunk-dashboard", "run", "--debug", "--host", "0.0.0.0"],
             ),
-            mock.patch("chipmunk_dashboard.cli.threading.Timer", return_value=timer_instance) as timer_cls,
+            mock.patch(
+                "chipmunk_dashboard.cli.threading.Timer", return_value=timer_instance
+            ) as timer_cls,
         ):
             cli.main()
 

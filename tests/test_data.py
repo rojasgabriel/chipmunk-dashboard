@@ -142,11 +142,16 @@ class TestDataUtilities(unittest.TestCase):
         _DeferredThread.created = []
         self.data._PREWARM_INFLIGHT.clear()
 
-        with mock.patch.object(self.data, "_PREWARM_ENABLED", True), mock.patch.object(
-            self.data.threading, "Thread", _DeferredThread
+        with (
+            mock.patch.object(self.data, "_PREWARM_ENABLED", True),
+            mock.patch.object(self.data.threading, "Thread", _DeferredThread),
         ):
-            self.data.prewarm_multisession_cache(["b", "a"], sessions_back=7, start_date="2026-01-01")
-            self.data.prewarm_multisession_cache(["a", "b"], sessions_back=7, start_date="2026-01-01")
+            self.data.prewarm_multisession_cache(
+                ["b", "a"], sessions_back=7, start_date="2026-01-01"
+            )
+            self.data.prewarm_multisession_cache(
+                ["a", "b"], sessions_back=7, start_date="2026-01-01"
+            )
 
         self.assertEqual(len(_DeferredThread.created), 1)
         key = (("a", "b"), 7, "2026-01-01")
@@ -159,7 +164,9 @@ class TestDataUtilities(unittest.TestCase):
         with (
             mock.patch.object(self.data, "_PREWARM_ENABLED", True),
             mock.patch.object(self.data.threading, "Thread", _ImmediateThread),
-            mock.patch.object(self.data, "multisession_metrics") as multisession_metrics,
+            mock.patch.object(
+                self.data, "multisession_metrics"
+            ) as multisession_metrics,
         ):
             self.data.prewarm_multisession_cache(
                 ["s2", "s1", "s1"], sessions_back=4, start_date="2026-03-05"
@@ -189,8 +196,12 @@ class TestDataUtilities(unittest.TestCase):
     def test_get_trials_for_sessions_returns_empty_for_no_session_names(self) -> None:
         self.assertEqual(self.data.get_trials_for_sessions("subject-a", tuple()), {})
 
-    def test_get_wait_medians_for_sessions_returns_empty_for_no_session_names(self) -> None:
-        self.assertEqual(self.data.get_wait_medians_for_sessions("subject-a", tuple()), {})
+    def test_get_wait_medians_for_sessions_returns_empty_for_no_session_names(
+        self,
+    ) -> None:
+        self.assertEqual(
+            self.data.get_wait_medians_for_sessions("subject-a", tuple()), {}
+        )
 
     def test_perf_log_skips_when_profiling_disabled(self) -> None:
         with (
@@ -354,7 +365,9 @@ class TestDataUtilities(unittest.TestCase):
             empty = True
 
         with (
-            mock.patch.object(self.data, "get_session_trials", return_value=_EmptyTrials()),
+            mock.patch.object(
+                self.data, "get_session_trials", return_value=_EmptyTrials()
+            ),
             mock.patch.object(self.data, "_perf_log") as perf_log,
         ):
             result = self.data.session_metrics("subject-a", "20260101_010101")

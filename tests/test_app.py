@@ -195,11 +195,15 @@ class TestAppUtilities(unittest.TestCase):
             figures = update_single("subject-a", None, 0)
 
         self.assertEqual(len(figures), 10)
-        self.assertEqual(figures[0].layout["annotations"][0]["text"], "Select subject(s)")
+        self.assertEqual(
+            figures[0].layout["annotations"][0]["text"], "Select subject(s)"
+        )
 
     def test_update_multi_returns_empty_figures_when_no_subjects(self) -> None:
         app = self.appmod.create_app()
         update_multi = app.callbacks["_update_multi"]
         figures = update_multi([], 10, None, [], 3, 0)
         self.assertEqual(len(figures), 8)
-        self.assertEqual(figures[0].layout["annotations"][0]["text"], "Select subject(s)")
+        self.assertEqual(
+            figures[0].layout["annotations"][0]["text"], "Select subject(s)"
+        )
