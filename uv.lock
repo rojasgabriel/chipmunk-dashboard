@@ -1094,7 +1094,7 @@ wheels = [
 
 [[package]]
 name = "labdata"
-version = "0.0.22"
+version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -1107,9 +1107,9 @@ dependencies = [
     { name = "safe-exit" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/20/56/6f48022c462373c5470bd3111b482d6d0605cc31516155aad0732f5bfe51/labdata-0.0.22.tar.gz", hash = "sha256:d8cb1f9e0aab67787de8b63285e4fd4ef290f5d9bd178cd7c32c7a3c4ba2a32a", size = 133973, upload-time = "2026-02-11T00:08:57.303Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f9/68/1fa4ecfef5762746df1a63b4f212d5997744cbf3b9bc5d19bfefd0a7c79d/labdata-0.1.4.tar.gz", hash = "sha256:fab7dcbf9ab341a907b8221747b560bb7edfa685a3d9d1486692002f844e8cb7", size = 160722, upload-time = "2026-04-09T03:04:07.773Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/05/b03d5668f5ca2d1cc120f17359137badf33682ec25e62aeedc42ff063615/labdata-0.0.22-py3-none-any.whl", hash = "sha256:4e181ea753ae5a7dcf8790e8df9c2e4eac2f3caa9ad7bab2ab8ecba99f19fa14", size = 151834, upload-time = "2026-02-11T00:08:55.736Z" },
+    { url = "https://files.pythonhosted.org/packages/58/75/4ff2ed66a9dff7fad27c890cc6812710f8955d7b5d047fb32df9be1a089c/labdata-0.1.4-py3-none-any.whl", hash = "sha256:9474368a05a92c488e5bb29efd5d59f107c32ea7199f8613faae50c78a179405", size = 180093, upload-time = "2026-04-09T03:04:06.657Z" },
 ]
 
 [[package]]
