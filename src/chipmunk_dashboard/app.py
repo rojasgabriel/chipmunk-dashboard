@@ -129,8 +129,7 @@ def create_app() -> Dash:
         A fully configured Dash app with layout, callbacks, and styles.
 
     Side Effects:
-        No data is read during app construction; subject options are populated
-        on first callback execution.
+        Reads subjects from the data layer during app construction.
     """
     subjects = get_all_subjects()
     recent_subjects = get_subjects_with_recent_sessions()
@@ -420,29 +419,6 @@ def create_app() -> Dash:
         day_sessions = [s for s in sessions_list if s.startswith(raw_date)]
         return day_sessions[-1] if day_sessions else None
 
-    def _filter_subjects(subjects: list[str], options: list[str] | None) -> list[str]:
-        """Return subjects filtered to those present in the current options list.
-
-        ``None`` is treated as "options not yet populated" and the original list
-        is returned unchanged, so callbacks remain functional before the first
-        options callback fires.  An explicit empty list (``[]``) means the
-        selected date has no sessions, so ``[]`` is returned to prevent stale
-        selections from producing data for invisible subjects.
-
-        Args:
-            subjects: Currently selected subject names.
-            options: Current checklist options, or ``None`` before first render.
-
-        Returns:
-            The subset of ``subjects`` that appear in ``options``, an empty list
-            when ``options`` is ``[]``, or the full ``subjects`` list when
-            ``options`` is ``None``.
-        """
-        if options is None:
-            return subjects
-        valid = set(options)
-        return [s for s in subjects if s in valid]
-
     # Session Date & Time Logic
     @app.callback(
         Output("session-date", "date"),
@@ -482,20 +458,18 @@ def create_app() -> Dash:
         if not subjects:
             return None, None, None, None
 
-        all_mins: list[str] = []
-        all_maxs: list[str] = []
-        for subj in subjects:
-            for s in get_sessions(subj):
-                if len(s) >= 8:
-                    d = f"{s[:4]}-{s[4:6]}-{s[6:8]}"
-                    all_mins.append(d)
-                    all_maxs.append(d)
+        all_dates = [
+            f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+            for subj in subjects
+            for s in get_sessions(subj)
+            if len(s) >= 8
+        ]
 
-        if not all_mins or not all_maxs:
+        if not all_dates:
             return None, None, None, None
 
-        min_d = min(all_mins)
-        max_d = max(all_maxs)
+        min_d = min(all_dates)
+        max_d = max(all_dates)
         prewarm_multisession_cache(subjects, sessions_back=30, start_date=max_d)
         return max_d, min_d, max_d, max_d  # Default to latest
 
