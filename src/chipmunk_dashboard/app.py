@@ -955,14 +955,13 @@ def create_app() -> Dash:
             yaxis_title="correct rate",
             yaxis_range=[0, 1],
             yaxis2=dict(
-                title="ew rate",
+                title=dict(text="ew rate", font=dict(color="silver")),
                 overlaying="y",
                 side="right",
                 range=[0, 1],
                 showgrid=False,
                 zeroline=False,
                 tickfont=dict(color="silver"),
-                titlefont=dict(color="silver"),
             ),
         )
         fig_sp.add_hline(y=0.5, **_ref_line)  # Ref Line (Updated style)
