@@ -324,7 +324,7 @@ fig_cr = go.Figure()
 other `fig_*.add_trace()` calls):
 
 ```python
-sm = session_metrics(subj, ses)   # already fetched — do not call again
+sm = session_metrics(subj, ses)   # reads the already-computed variable — session_metrics is cached, but don't add a second call; use the sm that was fetched earlier in the loop
 if sm and sm["cum_reward_x"]:
     fig_cr.add_trace(
         go.Scatter(

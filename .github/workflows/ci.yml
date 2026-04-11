@@ -7,7 +7,7 @@ on:
     branches: [main, dev]
 
 jobs:
-  lint-and-install:
+  ci:
     runs-on: ubuntu-latest
 
     steps:
@@ -31,4 +31,4 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Run unit tests
-        run: uv run pytest
+        run: uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90

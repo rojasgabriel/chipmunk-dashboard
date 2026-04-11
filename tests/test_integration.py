@@ -15,6 +15,7 @@ Three layers:
 """
 
 import importlib
+import math
 import sys
 import types
 import unittest
@@ -938,8 +939,6 @@ class TestDataNonEmptyPaths(unittest.TestCase):
             result = self.data.multisession_metrics("subject-a", sessions_back=5)
 
         self.assertIsNotNone(result)
-        import math
-
         for v in result["side_bias"]:
             self.assertTrue(math.isnan(v), f"expected NaN but got {v}")
 
@@ -958,7 +957,5 @@ class TestDataNonEmptyPaths(unittest.TestCase):
             result = self.data.multisession_metrics("subject-a", sessions_back=5)
 
         self.assertIsNotNone(result)
-        import math
-
         for v in result["median_rt"]:
             self.assertTrue(math.isnan(v), f"expected NaN but got {v}")
