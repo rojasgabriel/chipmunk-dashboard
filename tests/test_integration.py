@@ -679,7 +679,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "session_metrics", return_value=sm),
         ):
-            figures = update_single(["subject-a"], "20260101_010101", 0)
+            figures = update_single(["subject-a"], [], "20260101_010101", 0)
 
         self.assertEqual(len(figures), 10)
         for fig in figures:
@@ -700,7 +700,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "session_metrics", return_value=sm),
         ):
-            figures = update_single(["subject-a", "subject-b"], "20260101_010101", 0)
+            figures = update_single(["subject-a"], ["subject-b"], "20260101_010101", 0)
 
         self.assertEqual(len(figures), 10)
         for fig in figures:
@@ -719,7 +719,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         update_multi = app.callbacks["_update_multi"]
         ms = _make_multisession_metrics()
         with mock.patch.object(self.appmod, "multisession_metrics", return_value=ms):
-            figures = update_multi(["subject-a"], 10, "2026-01-10", [], 3, 0)
+            figures = update_multi(["subject-a"], [], 10, "2026-01-10", [], 3, 0)
 
         self.assertEqual(len(figures), 8)
         for fig in figures:
@@ -733,14 +733,16 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         update_multi = app.callbacks["_update_multi"]
         ms = _make_multisession_metrics()
         with mock.patch.object(self.appmod, "multisession_metrics", return_value=ms):
-            figures = update_multi(["subject-a"], 10, "2026-01-10", ["smooth"], 5, 0)
+            figures = update_multi(
+                ["subject-a"], [], 10, "2026-01-10", ["smooth"], 5, 0
+            )
 
         self.assertEqual(len(figures), 8)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
 
-    def test_update_single_string_subject_is_wrapped_in_list(self):
-        """subjects can arrive as a plain string; callback wraps it in a list."""
+    def test_update_single_recent_and_older_subjects_are_merged(self):
+        """Subjects from both checklists are combined and processed together."""
         app = self.appmod.create_app()
         update_single = app.callbacks["_update_single"]
         sm = _make_session_metrics()
@@ -750,17 +752,17 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "session_metrics", return_value=sm),
         ):
-            figures = update_single("subject-a", "20260101_010101", 0)
+            figures = update_single(["subject-a"], ["subject-b"], "20260101_010101", 0)
 
         self.assertEqual(len(figures), 10)
 
-    def test_update_multi_string_subject_is_wrapped_in_list(self):
-        """subjects can arrive as a plain string; callback wraps it in a list."""
+    def test_update_multi_recent_and_older_subjects_are_merged(self):
+        """Subjects from both checklists are combined and processed together."""
         app = self.appmod.create_app()
         update_multi = app.callbacks["_update_multi"]
         ms = _make_multisession_metrics()
         with mock.patch.object(self.appmod, "multisession_metrics", return_value=ms):
-            figures = update_multi("subject-a", 10, None, [], 3, 0)
+            figures = update_multi(["subject-a"], ["subject-b"], 10, None, [], 3, 0)
 
         self.assertEqual(len(figures), 8)
 
@@ -771,7 +773,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         # get_sessions returns [""] — non-empty list so subject is "valid", but
         # ses = "" which is falsy → the loop body is skipped via continue.
         with mock.patch.object(self.appmod, "get_sessions", return_value=[""]):
-            figures = update_single(["subject-a"], None, 0)
+            figures = update_single(["subject-a"], [], None, 0)
         self.assertEqual(len(figures), 10)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
@@ -786,7 +788,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "session_metrics", return_value=None),
         ):
-            figures = update_single(["subject-a"], "20260101_010101", 0)
+            figures = update_single(["subject-a"], [], "20260101_010101", 0)
         self.assertEqual(len(figures), 10)
 
     def test_update_multi_skips_subject_when_multisession_metrics_none(self):
@@ -794,7 +796,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         app = self.appmod.create_app()
         update_multi = app.callbacks["_update_multi"]
         with mock.patch.object(self.appmod, "multisession_metrics", return_value=None):
-            figures = update_multi(["subject-a"], 10, "2026-01-10", [], 3, 0)
+            figures = update_multi(["subject-a"], [], 10, "2026-01-10", [], 3, 0)
         self.assertEqual(len(figures), 8)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
