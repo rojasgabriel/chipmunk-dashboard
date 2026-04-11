@@ -420,9 +420,7 @@ def create_app() -> Dash:
         day_sessions = [s for s in sessions_list if s.startswith(raw_date)]
         return day_sessions[-1] if day_sessions else None
 
-    def _filter_subjects(
-        subjects: list[str], options: list[str] | None
-    ) -> list[str]:
+    def _filter_subjects(subjects: list[str], options: list[str] | None) -> list[str]:
         """Return subjects filtered to those present in the current options list.
 
         ``None`` is treated as "options not yet populated" and the original list
@@ -644,7 +642,9 @@ def create_app() -> Dash:
         Input("auto-refresh", "n_intervals"),
         State("session-date", "date"),
     )
-    def _update_single(subjects_recent, subjects_older, session_name, n_intervals, session_date):
+    def _update_single(
+        subjects_recent, subjects_older, session_name, n_intervals, session_date
+    ):
         """Render all single-session figures for the current selection.
 
         Callback Inputs:

@@ -703,7 +703,9 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "session_metrics", return_value=sm),
         ):
-            figures = update_single(["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01")
+            figures = update_single(
+                ["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01"
+            )
 
         self.assertEqual(len(figures), 10)
         for fig in figures:
@@ -755,7 +757,9 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "session_metrics", return_value=sm),
         ):
-            figures = update_single(["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01")
+            figures = update_single(
+                ["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01"
+            )
 
         self.assertEqual(len(figures), 10)
 
