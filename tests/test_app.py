@@ -67,6 +67,8 @@ def _import_app_module():
     fake_dash.html = _ComponentNamespace()
     fake_dash.Input = _IO
     fake_dash.Output = _IO
+    fake_dash.State = _IO
+    fake_dash.ctx = types.SimpleNamespace(triggered_id=None)
 
     fake_plotly = types.ModuleType("plotly")
     fake_plotly.__path__ = []
@@ -81,6 +83,7 @@ def _import_app_module():
     fake_data.get_all_subjects = mock.Mock(return_value=["subject-a", "subject-b"])
     fake_data.get_subjects_with_recent_sessions = mock.Mock(return_value=set())
     fake_data.get_sessions = mock.Mock(return_value=[])
+    fake_data.get_subjects_for_date = mock.Mock(return_value=[])
     fake_data.session_metrics = mock.Mock(return_value=None)
     fake_data.multisession_metrics = mock.Mock(return_value=None)
     fake_data.prewarm_multisession_cache = mock.Mock()
@@ -142,7 +145,7 @@ class TestAppUtilities(unittest.TestCase):
         app = self.appmod.create_app()
         update_date_options = app.callbacks["_update_date_options"]
 
-        self.assertEqual(update_date_options([], [], 0), (None, None, None, None))
+        self.assertEqual(update_date_options([], [], 0, 0), (None, None, None, None))
 
         with (
             mock.patch.object(
@@ -152,7 +155,7 @@ class TestAppUtilities(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "prewarm_multisession_cache") as prewarm,
         ):
-            result = update_date_options([], ["subject-a"], 0)
+            result = update_date_options([], ["subject-a"], 0, 0)
 
         self.assertEqual(
             result, ("2026-01-03", "2026-01-01", "2026-01-03", "2026-01-03")
@@ -160,6 +163,21 @@ class TestAppUtilities(unittest.TestCase):
         prewarm.assert_called_once_with(
             ["subject-a"], sessions_back=30, start_date="2026-01-03"
         )
+
+    def test_update_date_options_today_button_returns_todays_date(self) -> None:
+        app = self.appmod.create_app()
+        update_date_options = app.callbacks["_update_date_options"]
+        self.appmod.ctx.triggered_id = "today-button"
+        try:
+            date_val, min_d, max_d, month = update_date_options([], [], 0, 1)
+        finally:
+            self.appmod.ctx.triggered_id = None
+        from datetime import date
+
+        self.assertEqual(date_val, date.today().isoformat())
+        self.assertIsNone(min_d)
+        self.assertIsNone(max_d)
+        self.assertEqual(month, date.today().isoformat())
 
     def test_update_time_options_filters_and_defaults_to_latest(self) -> None:
         app = self.appmod.create_app()
@@ -204,7 +222,7 @@ class TestAppUtilities(unittest.TestCase):
                 return_value={"subject-b"},
             ),
         ):
-            recent_opts, older_opts, divider_style = update_subject_options(1)
+            recent_opts, older_opts, divider_style = update_subject_options(None, 1)
 
         # Recent subject has a styled Span label
         self.assertEqual(len(recent_opts), 1)
@@ -229,7 +247,7 @@ class TestAppUtilities(unittest.TestCase):
         update_single = app.callbacks["_update_single"]
 
         with mock.patch.object(self.appmod, "get_sessions", return_value=[]):
-            figures = update_single(["subject-a"], [], None, 0)
+            figures = update_single(["subject-a"], [], None, 0, None)
 
         self.assertEqual(len(figures), 10)
         self.assertEqual(
@@ -249,14 +267,14 @@ class TestAppUtilities(unittest.TestCase):
         app = self.appmod.create_app()
         update_date_options = app.callbacks["_update_date_options"]
         with mock.patch.object(self.appmod, "get_sessions", return_value=[]):
-            result = update_date_options([], ["subject-a"], 0)
+            result = update_date_options([], ["subject-a"], 0, 0)
         self.assertEqual(result, (None, None, None, None))
 
     def test_update_date_options_returns_none_when_all_sessions_too_short(self) -> None:
         app = self.appmod.create_app()
         update_date_options = app.callbacks["_update_date_options"]
         with mock.patch.object(self.appmod, "get_sessions", return_value=["short"]):
-            result = update_date_options([], ["subject-a"], 0)
+            result = update_date_options([], ["subject-a"], 0, 0)
         self.assertEqual(result, (None, None, None, None))
 
     def test_update_time_options_returns_empty_when_no_sessions_on_date(self) -> None:

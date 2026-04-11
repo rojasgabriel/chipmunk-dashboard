@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, dcc, html
+from dash import Dash, Input, Output, State, dcc, html
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +84,7 @@ def _import_app_with_real_libs():
     fake_data.get_all_subjects = mock.Mock(return_value=["subject-a"])
     fake_data.get_subjects_with_recent_sessions = mock.Mock(return_value=set())
     fake_data.get_sessions = mock.Mock(return_value=["20260101_010101"])
+    fake_data.get_subjects_for_date = mock.Mock(return_value=[])
     fake_data.session_metrics = mock.Mock(return_value=None)
     fake_data.multisession_metrics = mock.Mock(return_value=None)
     fake_data.prewarm_multisession_cache = mock.Mock()
@@ -119,11 +120,14 @@ def _import_app_fake_dash_real_plotly():
     fake_dash_mod.html = html
     fake_dash_mod.Input = Input
     fake_dash_mod.Output = Output
+    fake_dash_mod.State = State
+    fake_dash_mod.ctx = types.SimpleNamespace(triggered_id=None)
 
     fake_data = types.ModuleType("chipmunk_dashboard.data")
     fake_data.get_all_subjects = mock.Mock(return_value=["subject-a", "subject-b"])
     fake_data.get_subjects_with_recent_sessions = mock.Mock(return_value=set())
     fake_data.get_sessions = mock.Mock(return_value=["20260101_010101"])
+    fake_data.get_subjects_for_date = mock.Mock(return_value=[])
     fake_data.session_metrics = mock.Mock(return_value=None)
     fake_data.multisession_metrics = mock.Mock(return_value=None)
     fake_data.prewarm_multisession_cache = mock.Mock()
@@ -679,7 +683,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "session_metrics", return_value=sm),
         ):
-            figures = update_single(["subject-a"], [], "20260101_010101", 0)
+            figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
 
         self.assertEqual(len(figures), 10)
         for fig in figures:
@@ -700,7 +704,9 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "session_metrics", return_value=sm),
         ):
-            figures = update_single(["subject-a"], ["subject-b"], "20260101_010101", 0)
+            figures = update_single(
+                ["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01"
+            )
 
         self.assertEqual(len(figures), 10)
         for fig in figures:
@@ -752,7 +758,9 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "session_metrics", return_value=sm),
         ):
-            figures = update_single(["subject-a"], ["subject-b"], "20260101_010101", 0)
+            figures = update_single(
+                ["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01"
+            )
 
         self.assertEqual(len(figures), 10)
 
@@ -773,7 +781,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         # get_sessions returns [""] — non-empty list so subject is "valid", but
         # ses = "" which is falsy → the loop body is skipped via continue.
         with mock.patch.object(self.appmod, "get_sessions", return_value=[""]):
-            figures = update_single(["subject-a"], [], None, 0)
+            figures = update_single(["subject-a"], [], None, 0, None)
         self.assertEqual(len(figures), 10)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
@@ -788,7 +796,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "session_metrics", return_value=None),
         ):
-            figures = update_single(["subject-a"], [], "20260101_010101", 0)
+            figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
         self.assertEqual(len(figures), 10)
 
     def test_update_multi_skips_subject_when_multisession_metrics_none(self):

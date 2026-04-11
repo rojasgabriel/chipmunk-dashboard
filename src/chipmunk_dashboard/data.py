@@ -334,6 +334,30 @@ def get_wait_medians_for_sessions(
     return out
 
 
+@_ttl_lru_cache(maxsize=256)
+def get_subjects_for_date(date_str: str) -> list[str]:
+    """Return subjects that have at least one session on the given calendar date.
+
+    Args:
+        date_str: Date in ``YYYYMMDD`` format (the raw prefix used in session names).
+
+    Returns:
+        A sorted list of subject names with sessions starting on that date.
+        Returns an empty list when the date string is empty, not exactly 8 digits,
+        or no matches exist.
+
+    Side Effects:
+        Executes a database query under ``_DB_LOCK``.
+    """
+    if not date_str or not date_str.isdigit() or len(date_str) != 8:
+        return []
+    with _DB_LOCK:
+        rows = (DecisionTask.TrialSet() & f"session_name LIKE '{date_str}%'").fetch(
+            "subject_name"
+        )
+    return sorted(set(rows))
+
+
 def clear_data_cache() -> None:
     """Clear all in-memory cached data and metric results.
 
@@ -352,6 +376,7 @@ def clear_data_cache() -> None:
     get_trials_for_sessions.cache_clear()
     get_wait_medians_for_sessions.cache_clear()
     get_sessions.cache_clear()
+    get_subjects_for_date.cache_clear()
     session_metrics.cache_clear()
     multisession_metrics.cache_clear()
 
