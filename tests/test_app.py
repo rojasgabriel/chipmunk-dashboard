@@ -212,6 +212,12 @@ class TestAppUtilities(unittest.TestCase):
         self.assertEqual(recent_opt["value"], "subject-b")
         self.assertEqual(recent_opt["label"]["args"], ("★ subject-b",))
         self.assertEqual(recent_opt["label"]["component"], "Span")
+        self.assertIn("style", recent_opt["label"]["kwargs"])
+        self.assertEqual(
+            recent_opt["label"]["kwargs"]["style"]["color"],
+            self.appmod._THEME["accent"],
+        )
+        self.assertEqual(recent_opt["label"]["kwargs"]["style"]["fontWeight"], "bold")
         # Divider separates the two groups
         divider_opt = options[1]
         self.assertEqual(divider_opt["value"], "__divider__")
