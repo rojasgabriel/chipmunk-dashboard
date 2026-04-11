@@ -160,11 +160,9 @@ def create_app() -> Dash:
             recent subjects (with the ★ prefix) come before older ones.
         """
         recent_opts = [
-            {"label": f"★ {s}", "value": s} for s in sorted(all_subjects) if s in recent
+            {"label": f"★ {s}", "value": s} for s in all_subjects if s in recent
         ]
-        older_opts = [
-            {"label": s, "value": s} for s in sorted(all_subjects) if s not in recent
-        ]
+        older_opts = [{"label": s, "value": s} for s in all_subjects if s not in recent]
         return recent_opts + older_opts
 
     # -- helpers --------------------------------------------------------------
@@ -494,7 +492,7 @@ def create_app() -> Dash:
         Output("subjects", "options"),
         Input("auto-refresh", "n_intervals"),
     )
-    def _update_subject_options(n_intervals):
+    def _update_subject_options(_n_intervals):
         """Refresh the subject checklist options on each auto-refresh tick.
 
         Callback Inputs:
@@ -504,7 +502,7 @@ def create_app() -> Dash:
             - ``subjects.options``
 
         Args:
-            n_intervals: Auto-refresh tick counter.
+            _n_intervals: Auto-refresh tick counter (unused).
 
         Returns:
             Updated checklist options with recent subjects (★) sorted first.

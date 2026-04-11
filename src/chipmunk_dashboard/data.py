@@ -147,15 +147,9 @@ def get_subjects_with_recent_sessions(days: int = 14) -> set[str]:
     """
     cutoff = (date.today() - timedelta(days=days)).strftime("%Y%m%d")
     with _DB_LOCK:
-        rows = DecisionTask.TrialSet().fetch(
-            "subject_name", "session_name", as_dict=True
-        )
-    recent: set[str] = set()
-    for row in rows:
-        session = str(row["session_name"])
-        if len(session) >= 8 and session[:8] >= cutoff:
-            recent.add(str(row["subject_name"]))
-    return recent
+        recent_trials = DecisionTask.TrialSet() & f"session_name >= '{cutoff}'"
+        subjects = recent_trials.fetch("subject_name")
+    return {str(subject) for subject in subjects}
 
 
 @_ttl_lru_cache(maxsize=64)

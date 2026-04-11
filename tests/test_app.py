@@ -190,6 +190,30 @@ class TestAppUtilities(unittest.TestCase):
         clear_subjects = app.callbacks["_clear_subjects"]
         self.assertEqual(clear_subjects(1), [])
 
+    def test_update_subject_options_prioritizes_recent_subjects(self) -> None:
+        app = self.appmod.create_app()
+        update_subject_options = app.callbacks["_update_subject_options"]
+
+        with (
+            mock.patch.object(
+                self.appmod, "get_all_subjects", return_value=["subject-a", "subject-b"]
+            ),
+            mock.patch.object(
+                self.appmod,
+                "get_subjects_with_recent_sessions",
+                return_value={"subject-b"},
+            ),
+        ):
+            options = update_subject_options(1)
+
+        self.assertEqual(
+            options,
+            [
+                {"label": "★ subject-b", "value": "subject-b"},
+                {"label": "subject-a", "value": "subject-a"},
+            ],
+        )
+
     def test_update_single_returns_empty_figures_when_no_valid_subjects(self) -> None:
         app = self.appmod.create_app()
         update_single = app.callbacks["_update_single"]

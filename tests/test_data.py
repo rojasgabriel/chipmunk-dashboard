@@ -2,6 +2,7 @@ import importlib
 import sys
 import types
 import unittest
+from datetime import date
 from unittest import mock
 
 
@@ -121,6 +122,7 @@ class TestDataUtilities(unittest.TestCase):
     def test_clear_data_cache_clears_all_registered_caches(self) -> None:
         attrs = [
             "get_all_subjects",
+            "get_subjects_with_recent_sessions",
             "get_subject_data",
             "get_session_trials",
             "get_subject_water",
@@ -234,6 +236,25 @@ class TestDataUtilities(unittest.TestCase):
 
         self.assertEqual(result, ["a", "b", "z"])
         trialset.fetch.assert_called_once_with("subject_name")
+
+    def test_get_subjects_with_recent_sessions_filters_at_query(self) -> None:
+        self.data.get_subjects_with_recent_sessions.cache_clear()
+        rel = mock.Mock()
+        rel.fetch.return_value = ["subject-b", "subject-a", "subject-a"]
+        trialset = mock.MagicMock()
+        trialset.__and__.return_value = rel
+        trialset_cls = mock.Mock(return_value=trialset)
+
+        with (
+            mock.patch.object(self.data.DecisionTask, "TrialSet", trialset_cls),
+            mock.patch.object(self.data, "date") as fake_date,
+        ):
+            fake_date.today.return_value = date(2026, 1, 20)
+            result = self.data.get_subjects_with_recent_sessions(days=14)
+
+        trialset.__and__.assert_called_once_with("session_name >= '20260106'")
+        rel.fetch.assert_called_once_with("subject_name")
+        self.assertEqual(result, {"subject-a", "subject-b"})
 
     def test_get_sessions_returns_list_from_fetch(self) -> None:
         rel = mock.Mock()
