@@ -211,6 +211,9 @@ def create_app() -> Dash:
         )
 
     # -- sidebar --------------------------------------------------------------
+    _init_recent_opts, _init_older_opts = _build_subject_options(
+        subjects, recent_subjects
+    )
     sidebar = html.Div(
         [
             html.Label("Subjects", style={"fontWeight": "bold"}),
@@ -226,7 +229,7 @@ def create_app() -> Dash:
                 [
                     dcc.Checklist(
                         id="subjects-recent",
-                        options=_build_subject_options(subjects, recent_subjects)[0],
+                        options=_init_recent_opts,
                         value=[],
                         style={
                             "display": "flex",
@@ -244,17 +247,14 @@ def create_app() -> Dash:
                             "borderTop": f"1px solid {_THEME['border']}",
                             "display": (
                                 "block"
-                                if (
-                                    any(s in recent_subjects for s in subjects)
-                                    and any(s not in recent_subjects for s in subjects)
-                                )
+                                if (_init_recent_opts and _init_older_opts)
                                 else "none"
                             ),
                         },
                     ),
                     dcc.Checklist(
                         id="subjects-older",
-                        options=_build_subject_options(subjects, recent_subjects)[1],
+                        options=_init_older_opts,
                         value=[],
                         style={
                             "display": "flex",
