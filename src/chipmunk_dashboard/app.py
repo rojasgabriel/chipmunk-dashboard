@@ -144,26 +144,35 @@ def create_app() -> Dash:
     # Auto-refresh interval (60 minutes)
     auto_refresh = dcc.Interval(id="auto-refresh", interval=60 * 60 * 1000)
 
-    def _build_subject_options(all_subjects: list[str], recent: set[str]) -> list[dict]:
-        """Build checklist options that sort recent subjects first.
+    def _build_subject_options(
+        all_subjects: list[str], recent: set[str]
+    ) -> tuple[list[dict], list[dict]]:
+        """Build separate checklist option lists for recent and older subjects.
 
-        Subjects with a session in the last 14 days are shown at the top of
-        the list and prefixed with a star (★) marker so they are immediately
-        visible without scrolling.
+        Subjects with a session in the last 14 days are shown in accent color
+        and bold weight so they are immediately visible without scrolling.
 
         Args:
             all_subjects: Full sorted list of subject names.
             recent: Set of subject names with recent sessions.
 
         Returns:
-            A list of ``{"label": str, "value": str}`` dicts ordered so that
-            recent subjects (with the ★ prefix) come before older ones.
+            A ``(recent_opts, older_opts)`` tuple where recent subjects carry a
+            styled ``html.Span`` label and older subjects use a plain string.
         """
         recent_opts = [
-            {"label": f"★ {s}", "value": s} for s in all_subjects if s in recent
+            {
+                "label": html.Span(
+                    s,
+                    style={"color": _THEME["accent"], "fontWeight": "bold"},
+                ),
+                "value": s,
+            }
+            for s in all_subjects
+            if s in recent
         ]
         older_opts = [{"label": s, "value": s} for s in all_subjects if s not in recent]
-        return recent_opts + older_opts
+        return recent_opts, older_opts
 
     # -- helpers --------------------------------------------------------------
     def _graph(gid: str) -> dcc.Graph:
@@ -201,11 +210,14 @@ def create_app() -> Dash:
         )
 
     # -- sidebar --------------------------------------------------------------
+    _init_recent_opts, _init_older_opts = _build_subject_options(
+        subjects, recent_subjects
+    )
     sidebar = html.Div(
         [
             html.Label("Subjects", style={"fontWeight": "bold"}),
             html.Div(
-                "★ = session in last 2 weeks",
+                "blue = session in last 2 weeks",
                 style={
                     "fontSize": "11px",
                     "color": _THEME["muted"],
@@ -213,14 +225,45 @@ def create_app() -> Dash:
                 },
             ),
             html.Div(
-                dcc.Checklist(
-                    id="subjects",
-                    options=_build_subject_options(subjects, recent_subjects),
-                    value=[],
-                    style={"display": "flex", "flexDirection": "column", "gap": "2px"},
-                    inputStyle={"marginRight": "6px", "transform": "scale(1.2)"},
-                    labelStyle={"fontSize": "16px", "cursor": "pointer"},
-                ),
+                [
+                    dcc.Checklist(
+                        id="subjects-recent",
+                        options=_init_recent_opts,
+                        value=[],
+                        style={
+                            "display": "flex",
+                            "flexDirection": "column",
+                            "gap": "2px",
+                        },
+                        inputStyle={"marginRight": "6px", "transform": "scale(1.2)"},
+                        labelStyle={"fontSize": "16px", "cursor": "pointer"},
+                    ),
+                    html.Hr(
+                        id="subjects-divider",
+                        style={
+                            "margin": "4px 0",
+                            "border": "none",
+                            "borderTop": f"1px solid {_THEME['border']}",
+                            "display": (
+                                "block"
+                                if (_init_recent_opts and _init_older_opts)
+                                else "none"
+                            ),
+                        },
+                    ),
+                    dcc.Checklist(
+                        id="subjects-older",
+                        options=_init_older_opts,
+                        value=[],
+                        style={
+                            "display": "flex",
+                            "flexDirection": "column",
+                            "gap": "2px",
+                        },
+                        inputStyle={"marginRight": "6px", "transform": "scale(1.2)"},
+                        labelStyle={"fontSize": "16px", "cursor": "pointer"},
+                    ),
+                ],
                 style={
                     "height": "40vh",
                     "overflowY": "auto",
@@ -364,14 +407,16 @@ def create_app() -> Dash:
         Output("session-date", "min_date_allowed"),
         Output("session-date", "max_date_allowed"),
         Output("session-date", "initial_visible_month"),
-        Input("subjects", "value"),
+        Input("subjects-recent", "value"),
+        Input("subjects-older", "value"),
         Input("auto-refresh", "n_intervals"),
     )
-    def _update_date_options(subjects, n_intervals):
+    def _update_date_options(subjects_recent, subjects_older, n_intervals):
         """Update date-picker bounds and default date for the active subject.
 
         Callback Inputs:
-            - ``subjects.value``
+            - ``subjects-recent.value``
+            - ``subjects-older.value``
             - ``auto-refresh.n_intervals``
 
         Callback Outputs:
@@ -381,7 +426,8 @@ def create_app() -> Dash:
             - ``session-date.initial_visible_month``
 
         Args:
-            subjects: Selected subject names from the sidebar checklist.
+            subjects_recent: Selected recent subject names.
+            subjects_older: Selected older subject names.
             n_intervals: Auto-refresh tick counter (unused except as trigger).
 
         Returns:
@@ -391,6 +437,7 @@ def create_app() -> Dash:
         Side Effects:
             Triggers multi-session cache prewarming anchored to the latest date.
         """
+        subjects = (subjects_recent or []) + (subjects_older or [])
         if not subjects:
             return None, None, None, None
 
@@ -417,14 +464,16 @@ def create_app() -> Dash:
         Output("session-time", "options"),
         Output("session-time", "value"),
         Input("session-date", "date"),
-        Input("subjects", "value"),
+        Input("subjects-recent", "value"),
+        Input("subjects-older", "value"),
     )
-    def _update_time_options(date_val, subjects):
+    def _update_time_options(date_val, subjects_recent, subjects_older):
         """Update session-time dropdown options for the selected calendar day.
 
         Callback Inputs:
             - ``session-date.date``
-            - ``subjects.value``
+            - ``subjects-recent.value``
+            - ``subjects-older.value``
 
         Callback Outputs:
             - ``session-time.options``
@@ -432,12 +481,14 @@ def create_app() -> Dash:
 
         Args:
             date_val: Selected date in ``YYYY-MM-DD`` format.
-            subjects: Selected subject names from the sidebar checklist.
+            subjects_recent: Selected recent subject names.
+            subjects_older: Selected older subject names.
 
         Returns:
             Dropdown options for sessions on that day and the default selected
             value (latest session for the day), or empty outputs.
         """
+        subjects = (subjects_recent or []) + (subjects_older or [])
         if not date_val or not subjects:
             return [], None
 
@@ -467,7 +518,8 @@ def create_app() -> Dash:
         return opts, opts[-1]["value"] if opts else None
 
     @app.callback(
-        Output("subjects", "value"),
+        Output("subjects-recent", "value"),
+        Output("subjects-older", "value"),
         Input("clear-subjects", "n_clicks"),
         prevent_initial_call=True,
     )
@@ -478,18 +530,21 @@ def create_app() -> Dash:
             - ``clear-subjects.n_clicks``
 
         Callback Outputs:
-            - ``subjects.value``
+            - ``subjects-recent.value``
+            - ``subjects-older.value``
 
         Args:
             n_clicks: Button click count provided by Dash.
 
         Returns:
-            An empty list to clear the subject checklist value.
+            A pair of empty lists to clear both subject checklist values.
         """
-        return []
+        return [], []
 
     @app.callback(
-        Output("subjects", "options"),
+        Output("subjects-recent", "options"),
+        Output("subjects-older", "options"),
+        Output("subjects-divider", "style"),
         Input("auto-refresh", "n_intervals"),
     )
     def _update_subject_options(_n_intervals):
@@ -499,17 +554,27 @@ def create_app() -> Dash:
             - ``auto-refresh.n_intervals``
 
         Callback Outputs:
-            - ``subjects.options``
+            - ``subjects-recent.options``
+            - ``subjects-older.options``
+            - ``subjects-divider.style``
 
         Args:
             _n_intervals: Auto-refresh tick counter (unused).
 
         Returns:
-            Updated checklist options with recent subjects (★) sorted first.
+            A tuple of recent options, older options, and divider style dict.
+            The divider is hidden when either group is empty.
         """
         all_subjs = get_all_subjects()
         recent = get_subjects_with_recent_sessions()
-        return _build_subject_options(all_subjs, recent)
+        recent_opts, older_opts = _build_subject_options(all_subjs, recent)
+        divider_style = {
+            "margin": "4px 0",
+            "border": "none",
+            "borderTop": f"1px solid {_THEME['border']}",
+            "display": "block" if (recent_opts and older_opts) else "none",
+        }
+        return recent_opts, older_opts, divider_style
 
     # ── Single-session plots ─────────────────────────────────────────────────
     @app.callback(
@@ -523,15 +588,17 @@ def create_app() -> Dash:
         Output("wait-delta-hist", "figure"),
         Output("react-line", "figure"),
         Output("react-hist", "figure"),
-        Input("subjects", "value"),
+        Input("subjects-recent", "value"),
+        Input("subjects-older", "value"),
         Input("session-time", "value"),
         Input("auto-refresh", "n_intervals"),
     )
-    def _update_single(subjects, session_name, n_intervals):
+    def _update_single(subjects_recent, subjects_older, session_name, n_intervals):
         """Render all single-session figures for the current selection.
 
         Callback Inputs:
-            - ``subjects.value``
+            - ``subjects-recent.value``
+            - ``subjects-older.value``
             - ``session-time.value``
             - ``auto-refresh.n_intervals``
 
@@ -540,7 +607,8 @@ def create_app() -> Dash:
             initiation, wait-delta, and reaction-time views.
 
         Args:
-            subjects: Selected subject names as a list or single string.
+            subjects_recent: Selected recent subject names.
+            subjects_older: Selected older subject names.
             session_name: Selected session name for the first subject.
             n_intervals: Auto-refresh tick counter (unused except as trigger).
 
@@ -552,8 +620,7 @@ def create_app() -> Dash:
         """
         start = time.perf_counter()
         n = 10
-        if isinstance(subjects, str):
-            subjects = [subjects]
+        subjects = (subjects_recent or []) + (subjects_older or [])
 
         sessions_by_subject = {s: get_sessions(s) for s in subjects}
         valid_subjects = [s for s in subjects if sessions_by_subject.get(s)]
@@ -1052,7 +1119,8 @@ def create_app() -> Dash:
         Output("median-wait", "figure"),
         Output("trial-counts", "figure"),
         Output("water", "figure"),
-        Input("subjects", "value"),
+        Input("subjects-recent", "value"),
+        Input("subjects-older", "value"),
         Input("sessions-back", "value"),
         Input("session-date", "date"),  # Replaces session-time for alignment anchor
         Input("smooth-metrics", "value"),
@@ -1060,12 +1128,19 @@ def create_app() -> Dash:
         Input("auto-refresh", "n_intervals"),
     )
     def _update_multi(
-        subjects, sessions_back, session_date, smooth_vals, smooth_window, n_intervals
+        subjects_recent,
+        subjects_older,
+        sessions_back,
+        session_date,
+        smooth_vals,
+        smooth_window,
+        n_intervals,
     ):
         """Render all multi-session trend figures for selected subjects.
 
         Callback Inputs:
-            - ``subjects.value``
+            - ``subjects-recent.value``
+            - ``subjects-older.value``
             - ``sessions-back.value``
             - ``session-date.date``
             - ``smooth-metrics.value``
@@ -1077,7 +1152,8 @@ def create_app() -> Dash:
             and water earned.
 
         Args:
-            subjects: Selected subject names as a list or single string.
+            subjects_recent: Selected recent subject names.
+            subjects_older: Selected older subject names.
             sessions_back: Number of recent sessions to include.
             session_date: Shared anchor date used to align subject timelines.
             smooth_vals: Smoothing toggle values from checklist.
@@ -1093,8 +1169,7 @@ def create_app() -> Dash:
         """
         start = time.perf_counter()
         n = 8
-        if isinstance(subjects, str):
-            subjects = [subjects]
+        subjects = (subjects_recent or []) + (subjects_older or [])
         if not subjects:
             e = _empty_fig()
             _perf_log("_update_multi", start, subjects=0)
