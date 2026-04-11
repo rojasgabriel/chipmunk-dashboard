@@ -5,7 +5,9 @@ from typing import Any, cast
 import os
 import time
 import logging
-from dash import Dash, dcc, html, Input, Output, State
+from datetime import date as _date
+
+from dash import Dash, ctx, dcc, html, Input, Output, State
 import plotly.graph_objects as go
 import plotly.express as px
 from .data import (
@@ -285,7 +287,18 @@ def create_app() -> Dash:
             dcc.DatePickerSingle(
                 id="session-date",
                 display_format="YYYY-MM-DD",
-                style={"width": "100%", "marginBottom": "8px"},
+                style={"width": "100%", "marginBottom": "4px"},
+            ),
+            html.Button(
+                "Today",
+                id="today-button",
+                n_clicks=0,
+                style={
+                    "width": "100%",
+                    "marginBottom": "8px",
+                    "cursor": "pointer",
+                    "fontSize": "12px",
+                },
             ),
             dcc.Dropdown(
                 id="session-time",
@@ -428,14 +441,18 @@ def create_app() -> Dash:
         Input("subjects-recent", "value"),
         Input("subjects-older", "value"),
         Input("auto-refresh", "n_intervals"),
+        Input("today-button", "n_clicks"),
     )
-    def _update_date_options(subjects_recent, subjects_older, n_intervals):
+    def _update_date_options(
+        subjects_recent, subjects_older, n_intervals, _today_clicks
+    ):
         """Update date-picker bounds spanning all selected subjects.
 
         Callback Inputs:
             - ``subjects-recent.value``
             - ``subjects-older.value``
             - ``auto-refresh.n_intervals``
+            - ``today-button.n_clicks``
 
         Callback Outputs:
             - ``session-date.date``
@@ -447,6 +464,9 @@ def create_app() -> Dash:
             subjects_recent: Selected recent subject names.
             subjects_older: Selected older subject names.
             n_intervals: Auto-refresh tick counter (unused except as trigger).
+            _today_clicks: Today button click count (unused; presence in
+                ``ctx.triggered_id`` is the signal).
+
         Returns:
             A tuple with selected date and allowed date bounds, or ``None`` values
             when no sessions are available.
@@ -454,6 +474,10 @@ def create_app() -> Dash:
         Side Effects:
             Triggers multi-session cache prewarming anchored to the latest date.
         """
+        if ctx.triggered_id == "today-button":
+            today = _date.today().isoformat()
+            return today, None, None, today
+
         subjects = (subjects_recent or []) + (subjects_older or [])
         if not subjects:
             return None, None, None, None

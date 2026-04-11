@@ -121,6 +121,7 @@ def _import_app_fake_dash_real_plotly():
     fake_dash_mod.Input = Input
     fake_dash_mod.Output = Output
     fake_dash_mod.State = State
+    fake_dash_mod.ctx = types.SimpleNamespace(triggered_id=None)
 
     fake_data = types.ModuleType("chipmunk_dashboard.data")
     fake_data.get_all_subjects = mock.Mock(return_value=["subject-a", "subject-b"])
