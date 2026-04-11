@@ -12,7 +12,7 @@ dependencies = [
     "pandas",
     "numpy",
     "labdata>=0.0.22",
-    "setuptools<=80",
+    "setuptools<=82.0.1",
 ]
 
 [project.scripts]
