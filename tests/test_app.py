@@ -234,3 +234,35 @@ class TestAppUtilities(unittest.TestCase):
         self.assertEqual(
             figures[0].layout["annotations"][0]["text"], "Select subject(s)"
         )
+
+    def test_update_date_options_returns_none_when_sessions_empty(self) -> None:
+        app = self.appmod.create_app()
+        update_date_options = app.callbacks["_update_date_options"]
+        with mock.patch.object(self.appmod, "get_sessions", return_value=[]):
+            result = update_date_options(["subject-a"], 0)
+        self.assertEqual(result, (None, None, None, None))
+
+    def test_update_date_options_returns_none_when_all_sessions_too_short(self) -> None:
+        app = self.appmod.create_app()
+        update_date_options = app.callbacks["_update_date_options"]
+        with mock.patch.object(self.appmod, "get_sessions", return_value=["short"]):
+            result = update_date_options(["subject-a"], 0)
+        self.assertEqual(result, (None, None, None, None))
+
+    def test_update_time_options_returns_empty_when_no_sessions_on_date(self) -> None:
+        app = self.appmod.create_app()
+        update_time_options = app.callbacks["_update_time_options"]
+        with mock.patch.object(
+            self.appmod, "get_sessions", return_value=["20260103_010101"]
+        ):
+            result = update_time_options("2026-01-02", ["subject-a"])
+        self.assertEqual(result, ([], None))
+
+    def test_update_time_options_handles_session_without_underscore(self) -> None:
+        app = self.appmod.create_app()
+        update_time_options = app.callbacks["_update_time_options"]
+        with mock.patch.object(self.appmod, "get_sessions", return_value=["20260102"]):
+            options, value = update_time_options("2026-01-02", ["subject-a"])
+        self.assertEqual(len(options), 1)
+        self.assertEqual(options[0]["label"], "20260102")
+        self.assertEqual(value, "20260102")

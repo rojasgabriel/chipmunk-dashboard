@@ -22,4 +22,9 @@ chipmunk-dashboard = "chipmunk_dashboard.cli:main"
 module-root = "src"
 
 [dependency-groups]
-dev = ["ruff>=0.13.0", "pre-commit>=3.0", "pytest>=8.0"]
+dev = [
+    "ruff>=0.13.0",
+    "pre-commit>=3.0",
+    "pytest>=8.0",
+    "pytest-cov>=7.1.0",
+]

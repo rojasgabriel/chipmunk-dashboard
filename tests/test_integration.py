@@ -93,6 +93,50 @@ def _import_app_with_real_libs():
     return module
 
 
+class _FakeDash:
+    """Minimal Dash stub that captures callbacks by function name."""
+
+    def __init__(self, *args, **kwargs):
+        self.layout = None
+        self.callbacks: dict = {}
+
+    def callback(self, *cb_args, **cb_kwargs):
+        def _deco(func):
+            self.callbacks[func.__name__] = func
+            return func
+
+        return _deco
+
+
+def _import_app_fake_dash_real_plotly():
+    """Import app.py with fake Dash (callback access) + real plotly/numpy."""
+    sys.modules.pop("chipmunk_dashboard.app", None)
+
+    fake_dash_mod = types.ModuleType("dash")
+    fake_dash_mod.Dash = _FakeDash
+    fake_dash_mod.dcc = dcc
+    fake_dash_mod.html = html
+    fake_dash_mod.Input = Input
+    fake_dash_mod.Output = Output
+
+    fake_data = types.ModuleType("chipmunk_dashboard.data")
+    fake_data.get_all_subjects = mock.Mock(return_value=["subject-a", "subject-b"])
+    fake_data.get_subjects_with_recent_sessions = mock.Mock(return_value=set())
+    fake_data.get_sessions = mock.Mock(return_value=["20260101_010101"])
+    fake_data.session_metrics = mock.Mock(return_value=None)
+    fake_data.multisession_metrics = mock.Mock(return_value=None)
+    fake_data.prewarm_multisession_cache = mock.Mock()
+
+    patches = {
+        **_fake_db_modules(),
+        "dash": fake_dash_mod,
+        "chipmunk_dashboard.data": fake_data,
+    }
+    with mock.patch.dict(sys.modules, patches):
+        module = importlib.import_module("chipmunk_dashboard.app")
+    return module
+
+
 # ---------------------------------------------------------------------------
 # Synthetic data fixtures
 # ---------------------------------------------------------------------------
@@ -138,6 +182,60 @@ def _make_subject_dataframe() -> pd.DataFrame:
             "initiation_times": [rng.uniform(0.3, 2.0, 80).tolist() for _ in range(n)],
             "reaction_times": [rng.uniform(0.1, 0.5, 50).tolist() for _ in range(n)],
         }
+    )
+
+
+def _make_session_metrics() -> dict:
+    """Full session_metrics dict that exercises every figure-building branch."""
+    n = 100
+    rng = np.random.default_rng(42)
+    trial_nums = list(range(1, n + 1))
+    roll_x = list(range(10, n - 9, 5))
+    nroll = len(roll_x)
+    return dict(
+        stims=[-2.0, -1.0, 0.0, 1.0, 2.0],
+        n_correct=[4, 6, 8, 12, 15],
+        n_incorrect=[10, 8, 6, 4, 2],
+        n_ew=[2, 2, 2, 2, 2],
+        n_no_choice=[1, 1, 1, 1, 1],
+        p_right=[0.1, 0.25, 0.5, 0.75, 0.9],
+        median_rt=[0.3, 0.28, 0.25, 0.24, 0.23],
+        rts=rng.uniform(0.1, 0.5, n).tolist(),
+        rt_trial_nums=trial_nums,
+        rt_vals=rng.uniform(0.1, 0.5, n).tolist(),
+        rt_roll_x=roll_x,
+        rt_roll_y=rng.uniform(0.2, 0.4, nroll).tolist(),
+        init_times=rng.uniform(0.3, 2.0, n).tolist(),
+        init_trial_nums=trial_nums,
+        init_roll_x=roll_x,
+        init_roll_y=rng.uniform(0.5, 1.5, nroll).tolist(),
+        wait_times=rng.uniform(0.5, 3.0, n).tolist(),
+        wait_min_times=rng.uniform(0.2, 1.0, n).tolist(),
+        wait_delta_times=rng.uniform(0.0, 2.0, n).tolist(),
+        wait_trial_nums=trial_nums,
+        wait_delta_x=roll_x,
+        wait_delta_y=rng.uniform(0.0, 1.0, nroll).tolist(),
+        slide_x=roll_x,
+        slide_y=rng.uniform(0.5, 0.9, nroll).tolist(),
+        ew_roll_x=roll_x,
+        ew_roll_y=rng.uniform(0.0, 0.2, nroll).tolist(),
+    )
+
+
+def _make_multisession_metrics() -> dict:
+    """Full multisession_metrics dict for multi-session figure building."""
+    n = 10
+    rng = np.random.default_rng(42)
+    return dict(
+        x=[float(i - 9) for i in range(n)],
+        perf_easy=rng.uniform(0.5, 0.9, n).tolist(),
+        ew_rate=rng.uniform(0.0, 0.3, n).tolist(),
+        n_with_choice=[int(v) for v in rng.integers(50, 120, n)],
+        side_bias=rng.uniform(-0.2, 0.2, n).tolist(),
+        median_init=rng.uniform(0.3, 1.0, n).tolist(),
+        median_rt=rng.uniform(0.2, 0.5, n).tolist(),
+        median_wait=rng.uniform(0.5, 2.0, n).tolist(),
+        water=rng.uniform(1.0, 3.0, n).tolist(),
     )
 
 
@@ -551,3 +649,316 @@ class TestMultisessionMetricsWithRealLibs(unittest.TestCase):
         ):
             result = self.data.multisession_metrics("subject-a", sessions_back=5)
         self.assertIsNone(result)
+
+
+# ---------------------------------------------------------------------------
+# Layer D: Callback bodies with real plotly figures
+# ---------------------------------------------------------------------------
+
+
+class TestCallbacksWithRealPlotly(unittest.TestCase):
+    """Run _update_single and _update_multi with real plotly and synthetic data.
+
+    Uses _FakeDash so callbacks are accessible via app.callbacks[name], while
+    plotly.graph_objects and numpy are the real installed libraries.  Only the
+    data layer is mocked.
+    """
+
+    def setUp(self):
+        self.addCleanup(lambda: sys.modules.pop("chipmunk_dashboard.app", None))
+        self.appmod = _import_app_fake_dash_real_plotly()
+
+    def test_update_single_single_subject_returns_ten_figures(self):
+        app = self.appmod.create_app()
+        update_single = app.callbacks["_update_single"]
+        sm = _make_session_metrics()
+        with (
+            mock.patch.object(
+                self.appmod, "get_sessions", return_value=["20260101_010101"]
+            ),
+            mock.patch.object(self.appmod, "session_metrics", return_value=sm),
+        ):
+            figures = update_single(["subject-a"], "20260101_010101", 0)
+
+        self.assertEqual(len(figures), 10)
+        for fig in figures:
+            self.assertIsInstance(fig, go.Figure)
+        # Single-subject outcome chart: 4 vertical bar traces (one per outcome type)
+        self.assertEqual(len(figures[0].data), 4)
+        # P(right) and chronometric charts have one trace each
+        self.assertEqual(len(figures[1].data), 1)
+        self.assertEqual(len(figures[2].data), 1)
+
+    def test_update_single_multi_subject_uses_box_and_horizontal_bars(self):
+        app = self.appmod.create_app()
+        update_single = app.callbacks["_update_single"]
+        sm = _make_session_metrics()
+        with (
+            mock.patch.object(
+                self.appmod, "get_sessions", return_value=["20260101_010101"]
+            ),
+            mock.patch.object(self.appmod, "session_metrics", return_value=sm),
+        ):
+            figures = update_single(["subject-a", "subject-b"], "20260101_010101", 0)
+
+        self.assertEqual(len(figures), 10)
+        for fig in figures:
+            self.assertIsInstance(fig, go.Figure)
+        # Multi-col outcome chart: 4 horizontal bar traces
+        self.assertEqual(len(figures[0].data), 4)
+        self.assertIsInstance(figures[0].data[0], go.Bar)
+        self.assertEqual(figures[0].data[0].orientation, "h")
+        # Initiation dist uses Box in multi mode
+        self.assertIsInstance(figures[5].data[0], go.Box)
+        # Reaction time dist uses Box in multi mode
+        self.assertIsInstance(figures[9].data[0], go.Box)
+
+    def test_update_multi_with_data_returns_eight_figures(self):
+        app = self.appmod.create_app()
+        update_multi = app.callbacks["_update_multi"]
+        ms = _make_multisession_metrics()
+        with mock.patch.object(self.appmod, "multisession_metrics", return_value=ms):
+            figures = update_multi(["subject-a"], 10, "2026-01-10", [], 3, 0)
+
+        self.assertEqual(len(figures), 8)
+        for fig in figures:
+            self.assertIsInstance(fig, go.Figure)
+        # Performance figure should have one Scatter trace
+        self.assertEqual(len(figures[0].data), 1)
+        self.assertIsInstance(figures[0].data[0], go.Scatter)
+
+    def test_update_multi_smooth_enabled_still_returns_eight_figures(self):
+        app = self.appmod.create_app()
+        update_multi = app.callbacks["_update_multi"]
+        ms = _make_multisession_metrics()
+        with mock.patch.object(self.appmod, "multisession_metrics", return_value=ms):
+            figures = update_multi(["subject-a"], 10, "2026-01-10", ["smooth"], 5, 0)
+
+        self.assertEqual(len(figures), 8)
+        for fig in figures:
+            self.assertIsInstance(fig, go.Figure)
+
+    def test_update_single_string_subject_is_wrapped_in_list(self):
+        """subjects can arrive as a plain string; callback wraps it in a list."""
+        app = self.appmod.create_app()
+        update_single = app.callbacks["_update_single"]
+        sm = _make_session_metrics()
+        with (
+            mock.patch.object(
+                self.appmod, "get_sessions", return_value=["20260101_010101"]
+            ),
+            mock.patch.object(self.appmod, "session_metrics", return_value=sm),
+        ):
+            figures = update_single("subject-a", "20260101_010101", 0)
+
+        self.assertEqual(len(figures), 10)
+
+    def test_update_multi_string_subject_is_wrapped_in_list(self):
+        """subjects can arrive as a plain string; callback wraps it in a list."""
+        app = self.appmod.create_app()
+        update_multi = app.callbacks["_update_multi"]
+        ms = _make_multisession_metrics()
+        with mock.patch.object(self.appmod, "multisession_metrics", return_value=ms):
+            figures = update_multi("subject-a", 10, None, [], 3, 0)
+
+        self.assertEqual(len(figures), 8)
+
+    def test_update_single_skips_subjects_with_falsy_session_name(self):
+        """Line 590: `if not ses: continue` — session name resolves to empty string."""
+        app = self.appmod.create_app()
+        update_single = app.callbacks["_update_single"]
+        # get_sessions returns [""] — non-empty list so subject is "valid", but
+        # ses = "" which is falsy → the loop body is skipped via continue.
+        with mock.patch.object(self.appmod, "get_sessions", return_value=[""]):
+            figures = update_single(["subject-a"], None, 0)
+        self.assertEqual(len(figures), 10)
+        for fig in figures:
+            self.assertIsInstance(fig, go.Figure)
+
+    def test_update_single_skips_subject_when_session_metrics_none(self):
+        """Line 593: `if not sm: continue` — session_metrics returns None."""
+        app = self.appmod.create_app()
+        update_single = app.callbacks["_update_single"]
+        with (
+            mock.patch.object(
+                self.appmod, "get_sessions", return_value=["20260101_010101"]
+            ),
+            mock.patch.object(self.appmod, "session_metrics", return_value=None),
+        ):
+            figures = update_single(["subject-a"], "20260101_010101", 0)
+        self.assertEqual(len(figures), 10)
+
+    def test_update_multi_skips_subject_when_multisession_metrics_none(self):
+        """Line 1128: `if not ms: continue` — multisession_metrics returns None."""
+        app = self.appmod.create_app()
+        update_multi = app.callbacks["_update_multi"]
+        with mock.patch.object(self.appmod, "multisession_metrics", return_value=None):
+            figures = update_multi(["subject-a"], 10, "2026-01-10", [], 3, 0)
+        self.assertEqual(len(figures), 8)
+        for fig in figures:
+            self.assertIsInstance(fig, go.Figure)
+
+
+# ---------------------------------------------------------------------------
+# Layer E: data.py non-empty code paths
+# ---------------------------------------------------------------------------
+
+
+class _QueryChain:
+    """Chainable fake for DataJoint table expressions used in data.py queries.
+
+    Supports ``Table * Table.Part * Table.Params & restriction`` chaining and
+    a ``.fetch()`` call that returns the rows passed at construction time.
+    Attribute access (for nested table names like ``Chipmunk.Trial``) returns
+    ``self`` so the full expression evaluates to a single ``_QueryChain``.
+    """
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def __mul__(self, other):
+        return self
+
+    def __rmul__(self, other):
+        return self
+
+    def __and__(self, _):
+        return self
+
+    def fetch(self, *args, **kwargs):
+        if kwargs.get("as_dict"):
+            return self._rows
+        return self._rows
+
+    def __getattr__(self, name):
+        return self
+
+
+class TestDataNonEmptyPaths(unittest.TestCase):
+    """Cover data.py branches that are only reached with non-empty DB results."""
+
+    def setUp(self):
+        self.addCleanup(lambda: sys.modules.pop("chipmunk_dashboard.data", None))
+        self.data = _import_data_with_real_libs()
+        self.data.get_trials_for_sessions.cache_clear()
+        self.data.get_wait_medians_for_sessions.cache_clear()
+        self.data.multisession_metrics.cache_clear()
+        self.data.get_subject_data.cache_clear()
+
+    # -- get_trials_for_sessions (lines 257-280) ------------------------------
+
+    def test_get_trials_for_sessions_non_empty_returns_grouped_dict(self):
+        rows = [
+            {"session_name": "20260101", "trial_num": 1, "x": 10},
+            {"session_name": "20260101", "trial_num": 2, "x": 20},
+            {"session_name": "20260102", "trial_num": 1, "x": 30},
+        ]
+        with mock.patch.object(self.data, "Chipmunk", _QueryChain(rows)):
+            result = self.data.get_trials_for_sessions(
+                "subject-a", ("20260101", "20260102")
+            )
+
+        self.assertEqual(set(result.keys()), {"20260101", "20260102"})
+        self.assertEqual(len(result["20260101"]), 2)
+        self.assertEqual(len(result["20260102"]), 1)
+
+    def test_get_trials_for_sessions_empty_db_result_returns_empty_dict(self):
+        with mock.patch.object(self.data, "Chipmunk", _QueryChain([])):
+            result = self.data.get_trials_for_sessions("subject-a", ("20260101",))
+
+        self.assertEqual(result, {})
+
+    # -- get_wait_medians_for_sessions (lines 305-334) ------------------------
+
+    def test_get_wait_medians_for_sessions_non_empty_returns_float_per_session(self):
+        rows = [
+            {"session_name": "20260101", "t_react": 1.5, "t_stim": 1.0},
+            {"session_name": "20260101", "t_react": 2.0, "t_stim": 1.2},
+            {"session_name": "20260102", "t_react": 1.8, "t_stim": 1.3},
+        ]
+        with mock.patch.object(self.data, "Chipmunk", _QueryChain(rows)):
+            result = self.data.get_wait_medians_for_sessions(
+                "subject-a", ("20260101", "20260102")
+            )
+
+        self.assertIn("20260101", result)
+        self.assertIn("20260102", result)
+        self.assertIsInstance(result["20260101"], float)
+        self.assertAlmostEqual(result["20260101"], 0.65)
+
+    def test_get_wait_medians_for_sessions_empty_rows_returns_empty_dict(self):
+        """Line 314: `if not rows: return {}` — DB query returns no rows."""
+        with mock.patch.object(self.data, "Chipmunk", _QueryChain([])):
+            result = self.data.get_wait_medians_for_sessions("subject-a", ("20260101",))
+        self.assertEqual(result, {})
+
+    def test_get_wait_medians_for_sessions_all_invalid_wait_returns_empty(self):
+        # wait = t_react - t_stim; all negative -> mask filters everything out
+        rows = [
+            {"session_name": "20260101", "t_react": 0.5, "t_stim": 1.5},
+        ]
+        with mock.patch.object(self.data, "Chipmunk", _QueryChain(rows)):
+            result = self.data.get_wait_medians_for_sessions("subject-a", ("20260101",))
+
+        self.assertEqual(result, {})
+
+    # -- multisession_metrics: start_date branch (lines 684-686) --------------
+
+    def test_multisession_metrics_with_start_date_filters_to_that_date(self):
+        # Sessions span Jan 1-10; start_date=Jan 5 should keep only Jan 1-5.
+        df = _make_subject_dataframe()
+        with (
+            mock.patch.object(self.data, "get_subject_data", return_value=df),
+            mock.patch.object(
+                self.data, "get_wait_medians_for_sessions", return_value={}
+            ),
+            mock.patch.object(self.data, "get_subject_water", return_value={}),
+        ):
+            result = self.data.multisession_metrics(
+                "subject-a", sessions_back=10, start_date="2026-01-05"
+            )
+
+        self.assertIsNotNone(result)
+        # Only Jan 1-5 pass the <= filter; sessions_back=10 keeps all 5.
+        self.assertEqual(len(result["x"]), 5)
+
+    # -- multisession_metrics: side_bias no-choice path (line 730) ------------
+
+    def test_multisession_metrics_side_bias_is_nan_when_no_choices(self):
+        df = _make_subject_dataframe().copy()
+        # All response values are 0 → not in [-1, 1] → n_choice = 0 → nan bias
+        df["response_values"] = [[0, 0, 0, 0]] * len(df)
+        with (
+            mock.patch.object(self.data, "get_subject_data", return_value=df),
+            mock.patch.object(
+                self.data, "get_wait_medians_for_sessions", return_value={}
+            ),
+            mock.patch.object(self.data, "get_subject_water", return_value={}),
+        ):
+            result = self.data.multisession_metrics("subject-a", sessions_back=5)
+
+        self.assertIsNotNone(result)
+        import math
+
+        for v in result["side_bias"]:
+            self.assertTrue(math.isnan(v), f"expected NaN but got {v}")
+
+    # -- multisession_metrics: None reaction_times path (lines 741-742) -------
+
+    def test_multisession_metrics_median_rt_is_nan_when_reaction_times_is_none(self):
+        df = _make_subject_dataframe().copy()
+        df["reaction_times"] = [None] * len(df)
+        with (
+            mock.patch.object(self.data, "get_subject_data", return_value=df),
+            mock.patch.object(
+                self.data, "get_wait_medians_for_sessions", return_value={}
+            ),
+            mock.patch.object(self.data, "get_subject_water", return_value={}),
+        ):
+            result = self.data.multisession_metrics("subject-a", sessions_back=5)
+
+        self.assertIsNotNone(result)
+        import math
+
+        for v in result["median_rt"]:
+            self.assertTrue(math.isnan(v), f"expected NaN but got {v}")

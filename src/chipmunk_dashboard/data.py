@@ -688,7 +688,7 @@ def multisession_metrics(
         # If no date provided, use the latest session date of this subject as anchor
         if not df.empty:
             anchor_dt = df["date"].iloc[-1]
-        else:
+        else:  # pragma: no cover — df can't be empty here (already checked above)
             _perf_log("multisession_metrics", start, subject=subject, sessions=0)
             return None
 
@@ -708,7 +708,9 @@ def multisession_metrics(
             float((pd.Timestamp(v) - anchor_ts).days) if pd.notna(v) else float("nan")
             for v in d["date"].tolist()
         ]
-    except Exception:
+    except (
+        Exception
+    ):  # pragma: no cover — defensive fallback for unexpected timestamp types
         x_axis = [float(i) for i in range(-len(d) + 1, 1)]
 
     response_values = d["response_values"].tolist()
