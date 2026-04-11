@@ -445,36 +445,6 @@ def create_app() -> Dash:
         valid = set(options)
         return [s for s in subjects if s in valid]
 
-    # Subject options — filtered to date when one is selected
-    @app.callback(
-        Output("subjects", "options"),
-        Input("session-date", "date"),
-        Input("auto-refresh", "n_intervals"),
-    )
-    def _update_subject_options(date_val, n_intervals):
-        """Populate the subjects checklist, filtered to the selected date.
-
-        Callback Inputs:
-            - ``session-date.date``
-            - ``auto-refresh.n_intervals``
-
-        Callback Outputs:
-            - ``subjects.options``
-
-        Args:
-            date_val: Selected date in ``YYYY-MM-DD`` format, or ``None``.
-            n_intervals: Auto-refresh tick counter (unused except as trigger).
-
-        Returns:
-            A list of subject name strings. When a date is selected, only
-            subjects with at least one session on that date are included.
-            Falls back to the full subject list when no date is set.
-        """
-        if date_val:
-            raw_date = date_val.replace("-", "")
-            return get_subjects_for_date(raw_date)
-        return get_all_subjects()
-
     # Session Date & Time Logic
     @app.callback(
         Output("session-date", "date"),
@@ -492,9 +462,6 @@ def create_app() -> Dash:
             - ``subjects-recent.value``
             - ``subjects-older.value``
             - ``auto-refresh.n_intervals``
-
-        Callback State:
-            - ``subjects.options``
 
         Callback Outputs:
             - ``session-date.date``
@@ -548,9 +515,6 @@ def create_app() -> Dash:
             - ``session-date.date``
             - ``subjects-recent.value``
             - ``subjects-older.value``
-
-        Callback State:
-            - ``subjects.options``
 
         Callback Outputs:
             - ``session-time.options``
@@ -622,12 +586,14 @@ def create_app() -> Dash:
         Output("subjects-recent", "options"),
         Output("subjects-older", "options"),
         Output("subjects-divider", "style"),
+        Input("session-date", "date"),
         Input("auto-refresh", "n_intervals"),
     )
-    def _update_subject_options(_n_intervals):
-        """Refresh the subject checklist options on each auto-refresh tick.
+    def _update_subject_options(date_val, _n_intervals):
+        """Refresh the subject checklist options, filtered to the selected date.
 
         Callback Inputs:
+            - ``session-date.date``
             - ``auto-refresh.n_intervals``
 
         Callback Outputs:
@@ -636,13 +602,20 @@ def create_app() -> Dash:
             - ``subjects-divider.style``
 
         Args:
+            date_val: Selected date in ``YYYY-MM-DD`` format, or ``None``.
             _n_intervals: Auto-refresh tick counter (unused).
 
         Returns:
             A tuple of recent options, older options, and divider style dict.
+            When a date is selected, only subjects with sessions on that date
+            are included. Falls back to all subjects when no date is set.
             The divider is hidden when either group is empty.
         """
         all_subjs = get_all_subjects()
+        if date_val:
+            raw_date = date_val.replace("-", "")
+            date_subjs = set(get_subjects_for_date(raw_date))
+            all_subjs = [s for s in all_subjs if s in date_subjs]
         recent = get_subjects_with_recent_sessions()
         recent_opts, older_opts = _build_subject_options(all_subjs, recent)
         divider_style = {
@@ -682,7 +655,6 @@ def create_app() -> Dash:
 
         Callback State:
             - ``session-date.date``
-            - ``subjects.options``
 
         Callback Outputs:
             Ten figures for outcomes, psychometric/chronometric, performance,
@@ -1233,9 +1205,6 @@ def create_app() -> Dash:
             - ``smooth-metrics.value``
             - ``smooth-window.value``
             - ``auto-refresh.n_intervals``
-
-        Callback State:
-            - ``subjects.options``
 
         Callback Outputs:
             Eight figures for performance, EW rate, bias, medians, trial counts,
