@@ -79,6 +79,7 @@ def _import_app_module():
 
     fake_data = types.ModuleType("chipmunk_dashboard.data")
     fake_data.get_all_subjects = mock.Mock(return_value=["subject-a", "subject-b"])
+    fake_data.get_subjects_with_recent_sessions = mock.Mock(return_value=set())
     fake_data.get_sessions = mock.Mock(return_value=[])
     fake_data.session_metrics = mock.Mock(return_value=None)
     fake_data.multisession_metrics = mock.Mock(return_value=None)
