@@ -1,8 +1,8 @@
 # Contributing to chipmunk-dashboard
 
-Thank you for your interest in contributing!
-This guide explains how the project is structured, what is configurable vs. hardcoded,
-and how to submit changes.
+This guide covers everything you need to understand and work on the project:
+how the code is organized, how dependencies and quality gates work, what the
+tests do, and how to add new features.
 
 ---
 
@@ -10,12 +10,13 @@ and how to submit changes.
 
 1. [Project structure](#project-structure)
 2. [Development setup](#development-setup)
-3. [Code style](#code-style)
-4. [Running the dashboard locally](#running-the-dashboard-locally)
-5. [Environment variables](#environment-variables)
-6. [What is hardcoded vs. configurable](#what-is-hardcoded-vs-configurable)
-7. [Example: adding a new plot](#example-adding-a-new-plot)
-8. [Submitting changes](#submitting-changes)
+3. [Dependency management](#dependency-management)
+4. [Code quality gates](#code-quality-gates)
+5. [Running the dashboard locally](#running-the-dashboard-locally)
+6. [Environment variables](#environment-variables)
+7. [What is hardcoded vs. configurable](#what-is-hardcoded-vs-configurable)
+8. [Example: adding a new plot](#example-adding-a-new-plot)
+9. [Submitting changes](#submitting-changes)
 
 ---
 
@@ -28,10 +29,17 @@ chipmunk-dashboard/
 │   ├── cli.py           # CLI entry-point (`chipmunk-dashboard run`)
 │   ├── app.py           # Dash layout, callbacks, and figure helpers
 │   └── data.py          # Database queries, caching, and metric computation
+├── tests/
+│   ├── test_app.py          # Unit tests for app.py callbacks
+│   ├── test_cli.py          # Unit tests for the CLI
+│   ├── test_data.py         # Unit tests for data.py
+│   └── test_integration.py  # Integration tests using real third-party libraries
 ├── notebooks/
 │   └── ingest_subjects.ipynb   # One-off data exploration / ingestion helpers
-├── pyproject.toml       # Build metadata and dependency declarations
+├── .github/workflows/ci.yml    # GitHub Actions CI pipeline
 ├── .pre-commit-config.yaml     # Linting / formatting hooks
+├── pyproject.toml       # Build metadata and dependency declarations
+├── uv.lock              # Exact pinned dependency snapshot (committed to repo)
 └── README.md
 ```
 
@@ -63,7 +71,7 @@ features.
 git clone https://github.com/rojasgabriel/chipmunk-dashboard.git
 cd chipmunk-dashboard
 
-# Creates a virtual environment and installs all dependencies
+# Create a virtual environment and install all dependencies (including dev tools)
 uv sync --all-groups
 ```
 
@@ -81,21 +89,177 @@ uv run pre-commit run --all-files
 
 ---
 
-## Code style
+## Dependency management
 
-The project uses [ruff](https://docs.astral.sh/ruff/) for both linting and
-formatting, configured via the pre-commit hooks in `.pre-commit-config.yaml`.
+### How it works
 
-Run the formatter and linter at any time with:
+Dependencies are declared in **`pyproject.toml`** in two groups:
+
+- **`dependencies`** — runtime packages (`dash`, `plotly`, `pandas`, `numpy`,
+  `labdata`, `setuptools`). Installed whenever anyone runs `uv sync` or installs
+  the package.
+- **`[dependency-groups] dev`** — dev-only tools (`ruff`, `pre-commit`, `pytest`,
+  `pytest-cov`). Only installed when you pass `--all-groups`.
+
+**`uv.lock`** is a complete, exact snapshot — every package pinned to a specific
+version with a hash. It's committed to the repo so every developer and every CI
+run installs identical versions. You should never edit it by hand; uv manages it.
+
+### Common commands
+
+```bash
+# Install everything (runtime + dev tools) from the lock file
+uv sync --all-groups
+
+# Add a new runtime dependency (updates pyproject.toml and uv.lock)
+uv add some-package
+
+# Add a new dev dependency
+uv add --dev some-package
+
+# Upgrade a specific package to its latest allowed version
+uv lock --upgrade-package some-package && uv sync --all-groups
+```
+
+### Why CI uses `uv sync --frozen`
+
+Plain `uv sync` reads `uv.lock` and installs from it — it won't silently upgrade
+packages on its own. What `--frozen` adds is that it also **fails if `pyproject.toml`
+and `uv.lock` have drifted out of sync** — for example, if someone added a dep to
+`pyproject.toml` but forgot to run `uv sync` to regenerate the lock file. Without
+`--frozen`, uv would silently re-resolve and update the lock file in the CI runner,
+masking the inconsistency. With `--frozen`, CI fails loudly and the repo stays in a
+consistent state.
+
+### Dependabot
+
+Dependabot watches `uv.lock` and opens PRs automatically when new versions of
+dependencies are released. Because CI runs on every PR, those upgrades are tested
+before they can reach `main`. If a dep upgrade breaks the test suite, CI fails and
+you see it before merging.
+
+---
+
+## Code quality gates
+
+There are three layers, each catching different problems at different points.
+
+### 1. Pre-commit hooks (local, on every `git commit`)
+
+Defined in `.pre-commit-config.yaml`. These run on your machine before a commit
+is accepted and block it if anything fails:
+
+| Hook | What it does |
+|------|-------------|
+| `ruff check` | Lints for errors and style issues (unused imports, etc.) |
+| `ruff format` | Enforces consistent code formatting |
+| `pre-commit-hooks` | Trims trailing whitespace, ensures files end with a newline, checks for case conflicts |
+
+If a hook fails, it fixes the file in place where possible — re-stage and commit
+again. You can also run them manually at any time:
 
 ```bash
 uv run ruff format .
 uv run ruff check --fix .
 ```
 
-Beyond ruff, the pre-commit hooks also enforce trailing-whitespace removal and
-end-of-file newlines (via `pre-commit-hooks`). Match the docstring style
-(Google-style Args / Returns / Side Effects) used in the existing modules.
+Match the docstring style (Google-style `Args` / `Returns` / `Side Effects`) used
+in the existing modules.
+
+### 2. GitHub Actions CI (on every push and PR)
+
+Defined in `.github/workflows/ci.yml`. Runs on every push to `main` or `dev`, and
+on every pull request targeting those branches. One job with five sequential steps:
+
+| Step | Command | Purpose |
+|------|---------|---------|
+| Set up Python | `actions/setup-python` | Installs the exact version from `.python-version` |
+| Install uv | `astral-sh/setup-uv` | Gets the uv binary |
+| Install dependencies | `uv sync --frozen --all-groups` | Installs everything from the lock file; fails if lock is out of sync with `pyproject.toml` |
+| Lint | `uv run ruff check .` | Same check as pre-commit, catches anything that slipped through |
+| Format | `uv run ruff format --check .` | Verifies formatting without modifying files |
+| Tests | `uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90` | Runs the full test suite with coverage; CI fails if coverage drops below 90% |
+
+### 3. The test suite
+
+Four test files, 89 tests total. Currently at 99.8% coverage.
+
+#### `tests/test_data.py` — unit tests for `data.py`
+
+All of `pandas`, `numpy`, `labdata`, and `chipmunk` are replaced with lightweight
+stubs, so these tests never touch a real database and run in milliseconds.
+
+Covers:
+- The TTL/LRU cache — time-bucketing logic, `cache_clear`, TTL expiry
+- `clear_data_cache()` — every cached function is cleared
+- `prewarm_multisession_cache()` — background thread is started, in-flight
+  deduplication works, disabled when `CHIPMUNK_PREWARM=0`
+- `get_subjects_with_recent_sessions()` — cutoff date is constructed correctly
+  and pushed into the DB query restriction
+- All query functions — acquire `_DB_LOCK`, call `fetch()` with the right
+  arguments, return the right shape
+
+#### `tests/test_app.py` — unit tests for `app.py`
+
+Uses a fake `_Dash` class that stores callbacks in a dict
+(`app.callbacks["_update_single"]`), a fake plotly `_Figure`, and a mocked data
+layer. This gives direct access to every callback function without starting a
+real server.
+
+Covers:
+- `_empty_fig()`, `_layout()`, `_perf_log()` helpers
+- `_update_date_options` — all guard returns and the success path including
+  prewarm call
+- `_update_time_options` — no date/no-subjects guard, no sessions on the
+  selected date, sessions without underscores, the normal filtering path
+- `_clear_subjects` — returns empty list
+- `_update_subject_options` — recent subjects get ★ prefix and sort first
+- `_update_single`, `_update_multi` — empty-figure fallbacks when no data
+
+#### `tests/test_integration.py` — integration tests with real libraries
+
+Unlike the unit tests above, these import the **actual installed** `dash`,
+`plotly`, `pandas`, and `numpy`. Only `labdata` and `chipmunk` are mocked
+(they require VPN/database access). The purpose is to catch runtime breakage
+that mocked tests miss: if a library renames a class, removes a kwarg, or
+changes a return type, unit tests won't notice but these tests will immediately
+fail.
+
+Organized in five layers:
+
+**Layer A — API surface**: Directly instantiates every plotly/dash/pandas/numpy
+class the app uses and calls every method with the exact kwargs the app passes.
+Acts as a canary for library upgrades — covers `go.Scatter`, `go.Scattergl`,
+`go.Bar`, `go.Box`, `go.Histogram`, `add_hline`, `add_vline`, `px.colors`,
+`Dash`, all `dcc.*` and `html.*` components, `Input`/`Output`, DataFrame
+operations, datetime handling, rolling windows, and numpy stats/filtering.
+
+**Layer B — App creation smoke test**: Calls `create_app()` with real Dash and
+verifies it returns an actual `Dash` instance with a non-null layout.
+
+**Layer C — Data processing end-to-end**: Runs `session_metrics()` and
+`multisession_metrics()` with real pandas/numpy and synthetic DataFrames.
+Verifies all output keys are present, all values are Python lists, and edge
+cases (empty trials, smoothing) work correctly.
+
+**Layer D — Callback bodies with real plotly**: Uses a fake `_Dash` (for
+callback access) combined with real plotly/numpy, so the entire figure-building
+logic in `_update_single` and `_update_multi` runs against real `go.Figure`
+objects. Covers single-subject path (vertical bars + histograms),
+multi-subject path (horizontal bars + box plots), loop skips when session or
+metrics are missing, and the smoothing toggle.
+
+**Layer E — data.py non-empty DB paths**: Uses a `_QueryChain` stub that
+supports DataJoint's `Table * Table.Part & restriction` chaining syntax,
+letting synthetic rows be injected into functions that would otherwise require
+a real database. Covers `get_trials_for_sessions` groupby logic,
+`get_wait_medians_for_sessions` filtering, `multisession_metrics` date
+filtering, zero-choice side bias producing NaN, and `None` reaction times.
+
+#### `tests/test_cli.py` — unit tests for `cli.py`
+
+Tests argument parsing, default values, that `create_app().run()` is called
+with the right host/port/debug, and that `--no-open` suppresses the browser.
 
 ---
 
@@ -124,8 +288,8 @@ runtime behavior without modifying source code.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CHIPMUNK_CACHE_TTL_SECONDS` | `1800` | Lifetime (seconds) for each TTL time bucket in `data.py` (TTL is enforced via a hidden time-bucket argument to `lru_cache`). Reduce for faster data refresh during development. |
-| `CHIPMUNK_PROFILE` | `0` | Set to `1` to emit per-call timing logs (milliseconds) for the data-layer and callback functions that call `_perf_log(...)`. |
+| `CHIPMUNK_CACHE_TTL_SECONDS` | `1800` | Lifetime (seconds) for each TTL time bucket in `data.py`. Reduce for faster data refresh during development. |
+| `CHIPMUNK_PROFILE` | `0` | Set to `1` to emit per-call timing logs (milliseconds) for data-layer and callback functions. |
 | `CHIPMUNK_PREWARM` | `1` | Set to `0` to disable background cache prewarming of multi-session metrics. Prewarming is triggered when subjects are selected, not at server startup. |
 
 Example:
@@ -137,9 +301,6 @@ CHIPMUNK_CACHE_TTL_SECONDS=60 CHIPMUNK_PROFILE=1 uv run chipmunk-dashboard run -
 ---
 
 ## What is hardcoded vs. configurable
-
-Understanding what can be changed at runtime versus what requires a code edit
-helps avoid confusion when extending the project.
 
 ### Configurable at runtime (env vars or CLI flags)
 
@@ -209,9 +370,9 @@ A fifth step (verify) confirms everything works with a live reload.
 
 ### Step 1 — Compute the metric in `data.py`
 
-`session_metrics()` is the function that crunches single-session numbers and
-returns them as a plain dict. Add your new series to that dict so `app.py` can
-read it without touching the database.
+`session_metrics()` crunches single-session numbers and returns them as a plain
+dict. Add your new series to that dict so `app.py` can read it without touching
+the database.
 
 Find the `out = dict(...)` block near the bottom of `session_metrics()` and add
 your key(s):
@@ -235,10 +396,9 @@ trial_nums = trials.trial_num.to_numpy()
 ```
 
 > **Multi-session equivalent:** add a new list to the `res = dict(...)` block
-> inside `multisession_metrics()` instead. Each entry in that list corresponds
-> to one session in the time-series window. Apply the same smoothing the other
-> metrics use by ensuring it is inside the `res` dict so the existing smoothing
-> loop processes it automatically.
+> inside `multisession_metrics()` instead. Each entry corresponds to one session
+> in the time-series window. Put it inside `res` so the existing smoothing loop
+> processes it automatically.
 
 ---
 
@@ -246,8 +406,6 @@ trial_nums = trials.trial_num.to_numpy()
 
 Every plot needs a unique string component ID. Add it to one of the `_row(...)`
 calls in `create_app()` so the layout knows where to render it.
-
-The two layout sections are:
 
 ```python
 # app.py — single-session rows (inside create_app())
@@ -273,8 +431,7 @@ side-by-side grid.
 ### Step 3 — Add the `Output` to the callback decorator
 
 Dash connects layout components to callbacks through `Output` / `Input`
-declarations. Each plot in the layout must have a matching `Output` in exactly
-one callback.
+declarations. Each plot must have a matching `Output` in exactly one callback.
 
 Single-session plots belong to `_update_single`; multi-session plots belong to
 `_update_multi`. Add the new output **and** increment the `n` counter so the
@@ -310,21 +467,17 @@ the `return` tuple at the end of the function.
 
 ### Step 4 — Build and return the figure
 
-Inside the subject loop of `_update_single`, create a `go.Figure()` before the
-loop, add traces inside the loop, apply `_layout()` after the loop, and include
-it in the return tuple.
-
 **Before the loop** (alongside the other `fig_*` initialisations):
 
 ```python
 fig_cr = go.Figure()
 ```
 
-**Inside the `for i, subj in enumerate(valid_subjects):` loop** (alongside the
-other `fig_*.add_trace()` calls):
+**Inside the `for i, subj in enumerate(valid_subjects):` loop**, after `sm` is
+fetched, add your trace using the already-computed `sm` dict — don't call
+`session_metrics()` again:
 
 ```python
-sm = session_metrics(subj, ses)   # reads the already-computed variable — session_metrics is cached, but don't add a second call; use the sm that was fetched earlier in the loop
 if sm and sm["cum_reward_x"]:
     fig_cr.add_trace(
         go.Scatter(
@@ -386,10 +539,11 @@ Hot-reload will pick up any further edits automatically.
 
 2. **Make your changes**, keeping `data.py` and `app.py` concerns separate.
 
-3. **Lint and format**:
+3. **Run all quality checks locally** before pushing:
 
    ```bash
    uv run pre-commit run --all-files
+   uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90
    ```
 
 4. **Test manually** by running the dashboard with `--debug` and verifying the
