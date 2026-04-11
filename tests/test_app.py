@@ -206,13 +206,18 @@ class TestAppUtilities(unittest.TestCase):
         ):
             options = update_subject_options(1)
 
-        self.assertEqual(
-            options,
-            [
-                {"label": "★ subject-b", "value": "subject-b"},
-                {"label": "subject-a", "value": "subject-a"},
-            ],
-        )
+        # Recent subject comes first with a styled Span label
+        self.assertEqual(len(options), 3)
+        recent_opt = options[0]
+        self.assertEqual(recent_opt["value"], "subject-b")
+        self.assertEqual(recent_opt["label"]["args"], ("★ subject-b",))
+        self.assertEqual(recent_opt["label"]["component"], "Span")
+        # Divider separates the two groups
+        divider_opt = options[1]
+        self.assertEqual(divider_opt["value"], "__divider__")
+        self.assertTrue(divider_opt["disabled"])
+        # Older subject is a plain string label
+        self.assertEqual(options[2], {"label": "subject-a", "value": "subject-a"})
 
     def test_update_single_returns_empty_figures_when_no_valid_subjects(self) -> None:
         app = self.appmod.create_app()

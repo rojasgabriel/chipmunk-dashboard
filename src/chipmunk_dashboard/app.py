@@ -148,21 +148,43 @@ def create_app() -> Dash:
         """Build checklist options that sort recent subjects first.
 
         Subjects with a session in the last 14 days are shown at the top of
-        the list and prefixed with a star (★) marker so they are immediately
-        visible without scrolling.
+        the list with a star (★) marker, accent color, and bold weight so they
+        are immediately visible without scrolling.  A thin divider separates
+        the recent group from older subjects when both groups are non-empty.
 
         Args:
             all_subjects: Full sorted list of subject names.
             recent: Set of subject names with recent sessions.
 
         Returns:
-            A list of ``{"label": str, "value": str}`` dicts ordered so that
-            recent subjects (with the ★ prefix) come before older ones.
+            A list of option dicts ordered so that recent subjects come before
+            older ones, with a visual divider between the two groups.
         """
         recent_opts = [
-            {"label": f"★ {s}", "value": s} for s in all_subjects if s in recent
+            {
+                "label": html.Span(
+                    f"★ {s}",
+                    style={"color": _THEME["accent"], "fontWeight": "600"},
+                ),
+                "value": s,
+            }
+            for s in all_subjects
+            if s in recent
         ]
         older_opts = [{"label": s, "value": s} for s in all_subjects if s not in recent]
+        if recent_opts and older_opts:
+            divider = {
+                "label": html.Hr(
+                    style={
+                        "margin": "4px 0",
+                        "border": "none",
+                        "borderTop": f"1px solid {_THEME['border']}",
+                    }
+                ),
+                "value": "__divider__",
+                "disabled": True,
+            }
+            return recent_opts + [divider] + older_opts
         return recent_opts + older_opts
 
     # -- helpers --------------------------------------------------------------
