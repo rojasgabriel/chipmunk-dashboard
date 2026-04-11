@@ -210,7 +210,7 @@ class TestAppUtilities(unittest.TestCase):
         self.assertEqual(len(recent_opts), 1)
         recent_opt = recent_opts[0]
         self.assertEqual(recent_opt["value"], "subject-b")
-        self.assertEqual(recent_opt["label"]["args"], ("★ subject-b",))
+        self.assertEqual(recent_opt["label"]["args"], ("subject-b",))
         self.assertEqual(recent_opt["label"]["component"], "Span")
         self.assertIn("style", recent_opt["label"]["kwargs"])
         self.assertEqual(

@@ -149,9 +149,8 @@ def create_app() -> Dash:
     ) -> tuple[list[dict], list[dict]]:
         """Build separate checklist option lists for recent and older subjects.
 
-        Subjects with a session in the last 14 days are shown with a star (★)
-        marker, accent color, and bold weight so they are immediately visible
-        without scrolling.
+        Subjects with a session in the last 14 days are shown in accent color
+        and bold weight so they are immediately visible without scrolling.
 
         Args:
             all_subjects: Full sorted list of subject names.
@@ -164,7 +163,7 @@ def create_app() -> Dash:
         recent_opts = [
             {
                 "label": html.Span(
-                    f"★ {s}",
+                    s,
                     style={"color": _THEME["accent"], "fontWeight": "bold"},
                 ),
                 "value": s,
@@ -218,7 +217,7 @@ def create_app() -> Dash:
         [
             html.Label("Subjects", style={"fontWeight": "bold"}),
             html.Div(
-                "★ = session in last 2 weeks",
+                "blue = session in last 2 weeks",
                 style={
                     "fontSize": "11px",
                     "color": _THEME["muted"],
