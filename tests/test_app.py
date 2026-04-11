@@ -206,7 +206,7 @@ class TestAppUtilities(unittest.TestCase):
                 return_value={"subject-b"},
             ),
         ):
-            recent_opts, older_opts, divider_style = update_subject_options(1)
+            recent_opts, older_opts, divider_style = update_subject_options(None, 1)
 
         # Recent subject has a styled Span label
         self.assertEqual(len(recent_opts), 1)
