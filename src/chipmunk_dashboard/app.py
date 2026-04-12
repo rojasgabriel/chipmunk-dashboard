@@ -581,11 +581,12 @@ def create_app() -> Dash:
             c = COLORS[i % len(COLORS)]
             grp = subj
             sessions_list = sessions_by_subject[subj]
-            ses = (
-                session_name
-                if i == 0 and session_name
-                else (sessions_list[-1] if sessions_list else None)
-            )
+            if session_name:
+                if session_name not in sessions_list:
+                    continue
+                ses = session_name
+            else:
+                ses = sessions_list[-1] if sessions_list else None
             if not ses:
                 continue
             sm = session_metrics(subj, ses)
