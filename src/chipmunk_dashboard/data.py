@@ -347,16 +347,15 @@ def get_subjects_for_date(date_str: str) -> list[str]:
         or no matches exist.
 
     Side Effects:
-        Reads cached subject/session metadata and may hit the database via
-        ``get_all_subjects``/``get_sessions`` when caches are cold.
+        Executes a database query under ``_DB_LOCK``.
     """
     if not date_str or not date_str.isdigit() or len(date_str) != 8:
         return []
-    matching_subjects = []
-    for subject in get_all_subjects():
-        if any(session.startswith(date_str) for session in get_sessions(subject)):
-            matching_subjects.append(subject)
-    return sorted(set(matching_subjects))
+    with _DB_LOCK:
+        rows = (DecisionTask.TrialSet() & f"session_name LIKE '{date_str}%'").fetch(
+            "subject_name"
+        )
+    return sorted(set(rows))
 
 
 def clear_data_cache() -> None:
