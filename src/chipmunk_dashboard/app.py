@@ -368,7 +368,7 @@ def create_app() -> Dash:
         Input("auto-refresh", "n_intervals"),
     )
     def _update_date_options(subjects, n_intervals):
-        """Update date-picker bounds and default date for the active subject.
+        """Update date-picker bounds and default date for selected subjects.
 
         Callback Inputs:
             - ``subjects.value``
@@ -394,16 +394,14 @@ def create_app() -> Dash:
         if not subjects:
             return None, None, None, None
 
-        sessions = get_sessions(subjects[0])
-        if not sessions:
-            return None, None, None, None
-
         # Parse dates from session names (YYYYMMDD_HHMMSS)
         dates = []
-        for s in sessions:
-            if len(s) >= 8:
-                d_str = f"{s[:4]}-{s[4:6]}-{s[6:8]}"
-                dates.append(d_str)
+        for subject in subjects:
+            sessions = get_sessions(subject)
+            for s in sessions:
+                if len(s) >= 8:
+                    d_str = f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+                    dates.append(d_str)
 
         if not dates:
             return None, None, None, None

@@ -249,6 +249,32 @@ class TestAppUtilities(unittest.TestCase):
             result = update_date_options(["subject-a"], 0)
         self.assertEqual(result, (None, None, None, None))
 
+    def test_update_date_options_uses_any_selected_subject_with_sessions(self) -> None:
+        app = self.appmod.create_app()
+        update_date_options = app.callbacks["_update_date_options"]
+
+        sessions_by_subject = {
+            "subject-a": [],
+            "subject-b": ["20251231_235959", "20260102_010101"],
+        }
+
+        with (
+            mock.patch.object(
+                self.appmod,
+                "get_sessions",
+                side_effect=lambda subject: sessions_by_subject[subject],
+            ),
+            mock.patch.object(self.appmod, "prewarm_multisession_cache") as prewarm,
+        ):
+            result = update_date_options(["subject-a", "subject-b"], 0)
+
+        self.assertEqual(
+            result, ("2026-01-02", "2025-12-31", "2026-01-02", "2026-01-02")
+        )
+        prewarm.assert_called_once_with(
+            ["subject-a", "subject-b"], sessions_back=30, start_date="2026-01-02"
+        )
+
     def test_update_time_options_returns_empty_when_no_sessions_on_date(self) -> None:
         app = self.appmod.create_app()
         update_time_options = app.callbacks["_update_time_options"]
