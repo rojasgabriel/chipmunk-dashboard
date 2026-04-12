@@ -27,4 +27,5 @@ dev = [
     "pre-commit>=3.0",
     "pytest>=8.0",
     "pytest-cov>=7.1.0",
+    "pygments>=2.20.0",
 ]
