@@ -269,6 +269,21 @@ class TestDataUtilities(unittest.TestCase):
         self.assertEqual(result, ["20260101_010101", "20260102_010101"])
         rel.fetch.assert_called_once_with("session_name", order_by="session_name")
 
+    def test_get_subjects_for_date_filters_at_query(self) -> None:
+        self.data.get_subjects_for_date.cache_clear()
+        rel = mock.Mock()
+        rel.fetch.return_value = ["subject-b", "subject-a", "subject-a"]
+        trialset = mock.MagicMock()
+        trialset.__and__.return_value = rel
+        trialset_cls = mock.Mock(return_value=trialset)
+
+        with mock.patch.object(self.data.DecisionTask, "TrialSet", trialset_cls):
+            result = self.data.get_subjects_for_date("20260106")
+
+        trialset.__and__.assert_called_once_with("session_name LIKE '20260106%'")
+        rel.fetch.assert_called_once_with("subject_name")
+        self.assertEqual(result, ["subject-a", "subject-b"])
+
     def test_get_subject_data_returns_dataframe_from_fetch(self) -> None:
         self.data.get_subject_data.cache_clear()
         rows = [{"subject_name": "subject-a", "session_name": "20260101_010101"}]

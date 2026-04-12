@@ -67,8 +67,6 @@ def _import_app_module():
     fake_dash.html = _ComponentNamespace()
     fake_dash.Input = _IO
     fake_dash.Output = _IO
-    fake_dash.State = _IO
-    fake_dash.ctx = types.SimpleNamespace(triggered_id=None)
 
     fake_plotly = types.ModuleType("plotly")
     fake_plotly.__path__ = []
@@ -83,7 +81,6 @@ def _import_app_module():
     fake_data.get_all_subjects = mock.Mock(return_value=["subject-a", "subject-b"])
     fake_data.get_subjects_with_recent_sessions = mock.Mock(return_value=set())
     fake_data.get_sessions = mock.Mock(return_value=[])
-    fake_data.get_subjects_for_date = mock.Mock(return_value=[])
     fake_data.session_metrics = mock.Mock(return_value=None)
     fake_data.multisession_metrics = mock.Mock(return_value=None)
     fake_data.prewarm_multisession_cache = mock.Mock()
@@ -145,7 +142,7 @@ class TestAppUtilities(unittest.TestCase):
         app = self.appmod.create_app()
         update_date_options = app.callbacks["_update_date_options"]
 
-        self.assertEqual(update_date_options([], [], 0, 0), (None, None, None, None))
+        self.assertEqual(update_date_options([], 0), (None, None, None, None))
 
         with (
             mock.patch.object(
@@ -155,7 +152,7 @@ class TestAppUtilities(unittest.TestCase):
             ),
             mock.patch.object(self.appmod, "prewarm_multisession_cache") as prewarm,
         ):
-            result = update_date_options([], ["subject-a"], 0, 0)
+            result = update_date_options(["subject-a"], 0)
 
         self.assertEqual(
             result, ("2026-01-03", "2026-01-01", "2026-01-03", "2026-01-03")
@@ -164,26 +161,11 @@ class TestAppUtilities(unittest.TestCase):
             ["subject-a"], sessions_back=30, start_date="2026-01-03"
         )
 
-    def test_update_date_options_today_button_returns_todays_date(self) -> None:
-        app = self.appmod.create_app()
-        update_date_options = app.callbacks["_update_date_options"]
-        self.appmod.ctx.triggered_id = "today-button"
-        try:
-            date_val, min_d, max_d, month = update_date_options([], [], 0, 1)
-        finally:
-            self.appmod.ctx.triggered_id = None
-        from datetime import date
-
-        self.assertEqual(date_val, date.today().isoformat())
-        self.assertIsNone(min_d)
-        self.assertIsNone(max_d)
-        self.assertEqual(month, date.today().isoformat())
-
     def test_update_time_options_filters_and_defaults_to_latest(self) -> None:
         app = self.appmod.create_app()
         update_time_options = app.callbacks["_update_time_options"]
 
-        self.assertEqual(update_time_options(None, [], ["subject-a"]), ([], None))
+        self.assertEqual(update_time_options(None, ["subject-a"]), ([], None))
 
         with mock.patch.object(
             self.appmod,
@@ -195,7 +177,7 @@ class TestAppUtilities(unittest.TestCase):
                 "20260102_BAD",
             ],
         ):
-            options, value = update_time_options("2026-01-02", [], ["subject-a"])
+            options, value = update_time_options("2026-01-02", ["subject-a"])
 
         self.assertEqual(len(options), 3)
         self.assertEqual(options[0]["label"], "01:01:01")
@@ -206,7 +188,7 @@ class TestAppUtilities(unittest.TestCase):
     def test_clear_subjects_callback_returns_empty_list(self) -> None:
         app = self.appmod.create_app()
         clear_subjects = app.callbacks["_clear_subjects"]
-        self.assertEqual(clear_subjects(1), ([], []))
+        self.assertEqual(clear_subjects(1), [])
 
     def test_update_subject_options_prioritizes_recent_subjects(self) -> None:
         app = self.appmod.create_app()
@@ -222,32 +204,22 @@ class TestAppUtilities(unittest.TestCase):
                 return_value={"subject-b"},
             ),
         ):
-            recent_opts, older_opts, divider_style = update_subject_options(None, 1)
+            options = update_subject_options(1)
 
-        # Recent subject has a styled Span label
-        self.assertEqual(len(recent_opts), 1)
-        recent_opt = recent_opts[0]
-        self.assertEqual(recent_opt["value"], "subject-b")
-        self.assertEqual(recent_opt["label"]["args"], ("subject-b",))
-        self.assertEqual(recent_opt["label"]["component"], "Span")
-        self.assertIn("style", recent_opt["label"]["kwargs"])
         self.assertEqual(
-            recent_opt["label"]["kwargs"]["style"]["color"],
-            self.appmod._THEME["accent"],
+            options,
+            [
+                {"label": "★ subject-b", "value": "subject-b"},
+                {"label": "subject-a", "value": "subject-a"},
+            ],
         )
-        self.assertEqual(recent_opt["label"]["kwargs"]["style"]["fontWeight"], "bold")
-        # Older subject is in a separate list with a plain string label
-        self.assertEqual(len(older_opts), 1)
-        self.assertEqual(older_opts[0], {"label": "subject-a", "value": "subject-a"})
-        # Divider is shown when both groups are non-empty
-        self.assertEqual(divider_style.get("display"), "block")
 
     def test_update_single_returns_empty_figures_when_no_valid_subjects(self) -> None:
         app = self.appmod.create_app()
         update_single = app.callbacks["_update_single"]
 
         with mock.patch.object(self.appmod, "get_sessions", return_value=[]):
-            figures = update_single(["subject-a"], [], None, 0, None)
+            figures = update_single("subject-a", None, 0)
 
         self.assertEqual(len(figures), 10)
         self.assertEqual(
@@ -257,7 +229,7 @@ class TestAppUtilities(unittest.TestCase):
     def test_update_multi_returns_empty_figures_when_no_subjects(self) -> None:
         app = self.appmod.create_app()
         update_multi = app.callbacks["_update_multi"]
-        figures = update_multi([], [], 10, None, [], 3, 0)
+        figures = update_multi([], 10, None, [], 3, 0)
         self.assertEqual(len(figures), 8)
         self.assertEqual(
             figures[0].layout["annotations"][0]["text"], "Select subject(s)"
@@ -267,15 +239,41 @@ class TestAppUtilities(unittest.TestCase):
         app = self.appmod.create_app()
         update_date_options = app.callbacks["_update_date_options"]
         with mock.patch.object(self.appmod, "get_sessions", return_value=[]):
-            result = update_date_options([], ["subject-a"], 0, 0)
+            result = update_date_options(["subject-a"], 0)
         self.assertEqual(result, (None, None, None, None))
 
     def test_update_date_options_returns_none_when_all_sessions_too_short(self) -> None:
         app = self.appmod.create_app()
         update_date_options = app.callbacks["_update_date_options"]
         with mock.patch.object(self.appmod, "get_sessions", return_value=["short"]):
-            result = update_date_options([], ["subject-a"], 0, 0)
+            result = update_date_options(["subject-a"], 0)
         self.assertEqual(result, (None, None, None, None))
+
+    def test_update_date_options_uses_any_selected_subject_with_sessions(self) -> None:
+        app = self.appmod.create_app()
+        update_date_options = app.callbacks["_update_date_options"]
+
+        sessions_by_subject = {
+            "subject-a": [],
+            "subject-b": ["20251231_235959", "20260102_010101"],
+        }
+
+        with (
+            mock.patch.object(
+                self.appmod,
+                "get_sessions",
+                side_effect=lambda subject: sessions_by_subject[subject],
+            ),
+            mock.patch.object(self.appmod, "prewarm_multisession_cache") as prewarm,
+        ):
+            result = update_date_options(["subject-a", "subject-b"], 0)
+
+        self.assertEqual(
+            result, ("2026-01-02", "2025-12-31", "2026-01-02", "2026-01-02")
+        )
+        prewarm.assert_called_once_with(
+            ["subject-a", "subject-b"], sessions_back=30, start_date="2026-01-02"
+        )
 
     def test_update_time_options_returns_empty_when_no_sessions_on_date(self) -> None:
         app = self.appmod.create_app()
@@ -283,14 +281,14 @@ class TestAppUtilities(unittest.TestCase):
         with mock.patch.object(
             self.appmod, "get_sessions", return_value=["20260103_010101"]
         ):
-            result = update_time_options("2026-01-02", [], ["subject-a"])
+            result = update_time_options("2026-01-02", ["subject-a"])
         self.assertEqual(result, ([], None))
 
     def test_update_time_options_handles_session_without_underscore(self) -> None:
         app = self.appmod.create_app()
         update_time_options = app.callbacks["_update_time_options"]
         with mock.patch.object(self.appmod, "get_sessions", return_value=["20260102"]):
-            options, value = update_time_options("2026-01-02", [], ["subject-a"])
+            options, value = update_time_options("2026-01-02", ["subject-a"])
         self.assertEqual(len(options), 1)
         self.assertEqual(options[0]["label"], "20260102")
         self.assertEqual(value, "20260102")

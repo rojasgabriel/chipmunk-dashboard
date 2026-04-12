@@ -15,7 +15,10 @@ git clone https://github.com/rojasgabriel/chipmunk-dashboard.git
 cd chipmunk-dashboard
 
 # Installs dependencies on a venv initialized with `uv run ...`
-uv sync #"--group dev" for developing
+uv sync
+
+# For development, install the dev dependency group as well
+uv sync --group dev
 ```
 
 ## Running the Dashboard
