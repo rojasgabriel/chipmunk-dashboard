@@ -351,9 +351,8 @@ def get_subjects_for_date(date_str: str) -> list[str]:
     """
     if not date_str or not date_str.isdigit() or len(date_str) != 8:
         return []
-    safe_date = date_str.replace("'", "''")
     with _DB_LOCK:
-        rows = (DecisionTask.TrialSet() & f"session_name LIKE '{safe_date}%'").fetch(
+        rows = (DecisionTask.TrialSet() & f"session_name LIKE '{date_str}%'").fetch(
             "subject_name"
         )
     return sorted(set(rows))
