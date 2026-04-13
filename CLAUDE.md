@@ -74,7 +74,7 @@ Four test files, 90 tests, ~98% coverage. No real database required — all `lab
 
 The fake Dash module in `test_app.py` and `_import_app_fake_dash_real_plotly` in `test_integration.py` must expose `Dash`, `dcc`, `html`, `Input`, `Output`, `State`, and `ctx`. When adding new Dash imports to `app.py`, update both fake modules accordingly.
 
-When adding a plot: add a trace in the relevant callback in `app.py`, add the corresponding `Output` to the callback decorator, wire it to the layout, then add coverage in both `test_app.py` and `test_integration.py`.
+When adding a plot, use the `/add-plot` skill (`.claude/skills/add-plot/SKILL.md`) — it walks the full wiring (optional `data.py` extension, layout row, callback `Output` + return-tuple position, single/multi-subject adaptive rendering, and tests in both `test_app.py` and `test_integration.py`).
 
 ## Useful environment variables
 
