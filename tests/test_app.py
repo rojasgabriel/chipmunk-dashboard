@@ -283,13 +283,27 @@ class TestAppUtilities(unittest.TestCase):
             "init_times": [],
             "init_roll_x": [],
             "init_roll_y": [],
-            "wait_delta_times": [],
-            "wait_trial_nums": [],
+            "wait_delta_times": [0.2, 0.3],
+            "wait_trial_nums": [1, 2],
             "wait_delta_x": [],
             "wait_delta_y": [],
-            "wait_times": [],
+            "wait_delta_left_times": [0.12, 0.15],
+            "wait_delta_right_times": [0.2, 0.24],
+            "wait_trial_nums_left": [1, 3],
+            "wait_trial_nums_right": [2, 4],
+            "wait_delta_left_x": [],
+            "wait_delta_left_y": [],
+            "wait_delta_right_x": [],
+            "wait_delta_right_y": [],
+            "wait_times": [0.5, 0.6],
             "wait_roll_x": [],
             "wait_roll_y": [],
+            "wait_times_left": [0.5],
+            "wait_times_right": [0.6],
+            "wait_left_x": [],
+            "wait_left_y": [],
+            "wait_right_x": [],
+            "wait_right_y": [],
             "rts": [],
             "rt_trial_nums": [],
             "rt_vals": [],
@@ -299,6 +313,10 @@ class TestAppUtilities(unittest.TestCase):
             "response_times_correct": [0.2, 0.25],
             "response_times_incorrect": [0.4],
             "iti_times": [0.8, 1.1, 1.0],
+            "iti_times_after_correct": [0.8],
+            "iti_times_after_incorrect": [1.1],
+            "iti_times_after_ew": [1.0],
+            "iti_times_after_no_choice": [0.9],
             "trial_count_x": [2.5, 7.5],
             "trial_count_y": [20.0, 18.0],
         }
@@ -317,6 +335,10 @@ class TestAppUtilities(unittest.TestCase):
         self.assertIn("yaxis_range", figures[4].layout)  # init-line
         self.assertIn("yaxis_range", figures[6].layout)  # wait-delta-line
         self.assertIn("yaxis_range", figures[8].layout)  # wait-floor-line
+        self.assertIn("updatemenus", figures[6].layout)  # dwell choice toggle
+        self.assertIn("updatemenus", figures[8].layout)  # wait-floor choice toggle
+        self.assertIn("updatemenus", figures[10].layout)  # response outcome toggle
+        self.assertIn("updatemenus", figures[11].layout)  # iti outcome toggle
 
     def test_update_multi_returns_empty_figures_when_no_subjects(self) -> None:
         app = self.appmod.create_app()

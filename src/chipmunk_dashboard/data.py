@@ -613,25 +613,83 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
 
     # Response times (movement time): response - react, split by outcome.
     response_raw = trials["t_response"].to_numpy() - trials["t_react"].to_numpy()
+    response_vals = trials["response"].to_numpy()
     rewarded = trials["rewarded"].to_numpy()
     punished = trials["punished"].to_numpy()
+    early_withdrawal = trials["early_withdrawal"].to_numpy()
     response_mask = (
         np.isfinite(response_raw)
         & (response_raw > 0)
         & (response_raw < 5)
-        & (trials.response != 0)
+        & (response_vals != 0)
     )
     response_times = response_raw[response_mask]
     response_correct = response_raw[response_mask & (rewarded == 1)]
     response_incorrect = response_raw[response_mask & (punished == 1)]
 
-    # Inter-trial intervals from consecutive trial start times.
-    start_times = trials["t_start"].to_numpy()
-    start_times = start_times[np.isfinite(start_times)]
-    iti_vals = np.diff(start_times) if start_times.size > 1 else np.array([])
-    iti_vals = iti_vals[(iti_vals > 0) & (iti_vals < 30)]
+    # Left/right choice splits for post-go center dwell and wait floor.
+    wait_choice = response_vals[wait_mask]
+    left_choice_mask = wait_choice == -1
+    right_choice_mask = wait_choice == 1
+    wait_delta_left = wait_delta[left_choice_mask]
+    wait_delta_right = wait_delta[right_choice_mask]
+    wait_left = wait_actual[left_choice_mask]
+    wait_right = wait_actual[right_choice_mask]
+    wait_trial_nums_left = wait_trial_nums[left_choice_mask]
+    wait_trial_nums_right = wait_trial_nums[right_choice_mask]
+
+    # Rolling helper used for split traces.
+    def _rolling_median(
+        x_vals: np.ndarray, y_vals: np.ndarray
+    ) -> tuple[list[int], list[float]]:
+        roll_x: list[int] = []
+        roll_y: list[float] = []
+        for start in range(0, len(y_vals) - win + 1, 5):
+            roll_x.append(int(np.mean(x_vals[start : start + win])))
+            roll_y.append(float(np.median(y_vals[start : start + win])))
+        return roll_x, roll_y
+
+    wait_delta_left_roll_x, wait_delta_left_roll_y = _rolling_median(
+        wait_trial_nums_left, wait_delta_left
+    )
+    wait_delta_right_roll_x, wait_delta_right_roll_y = _rolling_median(
+        wait_trial_nums_right, wait_delta_right
+    )
+    wait_left_roll_x, wait_left_roll_y = _rolling_median(
+        wait_trial_nums_left, wait_left
+    )
+    wait_right_roll_x, wait_right_roll_y = _rolling_median(
+        wait_trial_nums_right, wait_right
+    )
+
+    # Inter-trial intervals from consecutive trial starts, split by preceding outcome.
+    start_times_all = trials["t_start"].to_numpy()
+    iti_all: list[float] = []
+    iti_after_correct: list[float] = []
+    iti_after_incorrect: list[float] = []
+    iti_after_ew: list[float] = []
+    iti_after_no_choice: list[float] = []
+    for i in range(len(start_times_all) - 1):
+        start_prev = start_times_all[i]
+        start_next = start_times_all[i + 1]
+        if not (np.isfinite(start_prev) and np.isfinite(start_next)):
+            continue
+        iti = float(start_next - start_prev)
+        if not (0 < iti < 30):
+            continue
+        iti_all.append(iti)
+        if rewarded[i] == 1:
+            iti_after_correct.append(iti)
+        elif punished[i] == 1:
+            iti_after_incorrect.append(iti)
+        elif early_withdrawal[i] == 1:
+            iti_after_ew.append(iti)
+        else:
+            iti_after_no_choice.append(iti)
+    iti_vals = np.asarray(iti_all, dtype=float)
 
     # Trial-count histogram across session time (5-minute bins from first trial).
+    start_times = start_times_all[np.isfinite(start_times_all)]
     trial_count_bin_size_min = 5.0
     if start_times.size:
         elapsed_min = (start_times - start_times[0]) / 60.0
@@ -684,6 +742,10 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         response_times_correct=response_correct.tolist(),
         response_times_incorrect=response_incorrect.tolist(),
         iti_times=iti_vals.tolist(),
+        iti_times_after_correct=iti_after_correct,
+        iti_times_after_incorrect=iti_after_incorrect,
+        iti_times_after_ew=iti_after_ew,
+        iti_times_after_no_choice=iti_after_no_choice,
         trial_count_x=trial_count_x,
         trial_count_y=trial_count_vals.astype(float).tolist(),
         init_times=init_vals.tolist(),
@@ -693,11 +755,25 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         wait_times=wait_actual.tolist(),
         wait_min_times=wait_min.tolist(),
         wait_delta_times=wait_delta.tolist(),
+        wait_delta_left_times=wait_delta_left.tolist(),
+        wait_delta_right_times=wait_delta_right.tolist(),
         wait_trial_nums=wait_trial_nums.tolist(),
+        wait_trial_nums_left=wait_trial_nums_left.tolist(),
+        wait_trial_nums_right=wait_trial_nums_right.tolist(),
         wait_delta_x=wait_delta_x,
         wait_delta_y=wait_delta_y,
+        wait_delta_left_x=wait_delta_left_roll_x,
+        wait_delta_left_y=wait_delta_left_roll_y,
+        wait_delta_right_x=wait_delta_right_roll_x,
+        wait_delta_right_y=wait_delta_right_roll_y,
         wait_roll_x=wait_roll_x,
         wait_roll_y=wait_roll_y,
+        wait_times_left=wait_left.tolist(),
+        wait_times_right=wait_right.tolist(),
+        wait_left_x=wait_left_roll_x,
+        wait_left_y=wait_left_roll_y,
+        wait_right_x=wait_right_roll_x,
+        wait_right_y=wait_right_roll_y,
         slide_x=slide_x,  # rolling performance x
         slide_y=slide_y,  # rolling performance y
         ew_roll_x=ew_roll_x,  # rolling EW x

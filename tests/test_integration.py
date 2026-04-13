@@ -220,12 +220,30 @@ def _make_session_metrics() -> dict:
         wait_trial_nums=trial_nums,
         wait_delta_x=roll_x,
         wait_delta_y=rng.uniform(0.0, 1.0, nroll).tolist(),
+        wait_delta_left_times=rng.uniform(0.0, 1.0, n // 2).tolist(),
+        wait_delta_right_times=rng.uniform(0.0, 1.0, n // 2).tolist(),
+        wait_trial_nums_left=trial_nums[::2],
+        wait_trial_nums_right=trial_nums[1::2],
+        wait_delta_left_x=roll_x,
+        wait_delta_left_y=rng.uniform(0.0, 1.0, nroll).tolist(),
+        wait_delta_right_x=roll_x,
+        wait_delta_right_y=rng.uniform(0.0, 1.0, nroll).tolist(),
         wait_roll_x=roll_x,
         wait_roll_y=rng.uniform(0.5, 2.0, nroll).tolist(),
+        wait_times_left=rng.uniform(0.5, 3.0, n // 2).tolist(),
+        wait_times_right=rng.uniform(0.5, 3.0, n // 2).tolist(),
+        wait_left_x=roll_x,
+        wait_left_y=rng.uniform(0.5, 2.0, nroll).tolist(),
+        wait_right_x=roll_x,
+        wait_right_y=rng.uniform(0.5, 2.0, nroll).tolist(),
         response_times=rng.uniform(0.05, 0.8, n).tolist(),
         response_times_correct=rng.uniform(0.05, 0.5, n // 2).tolist(),
         response_times_incorrect=rng.uniform(0.2, 0.9, n // 2).tolist(),
         iti_times=rng.uniform(0.5, 3.0, n).tolist(),
+        iti_times_after_correct=rng.uniform(0.5, 3.0, n // 4).tolist(),
+        iti_times_after_incorrect=rng.uniform(0.5, 3.0, n // 4).tolist(),
+        iti_times_after_ew=rng.uniform(0.5, 3.0, n // 4).tolist(),
+        iti_times_after_no_choice=rng.uniform(0.5, 3.0, n // 4).tolist(),
         trial_count_x=[2.5, 7.5, 12.5, 17.5],
         trial_count_y=[25.0, 20.0, 18.0, 12.0],
         slide_x=roll_x,
@@ -597,15 +615,33 @@ class TestSessionMetricsWithRealLibs(unittest.TestCase):
             "wait_times",
             "wait_min_times",
             "wait_delta_times",
+            "wait_delta_left_times",
+            "wait_delta_right_times",
             "wait_trial_nums",
+            "wait_trial_nums_left",
+            "wait_trial_nums_right",
             "wait_delta_x",
             "wait_delta_y",
+            "wait_delta_left_x",
+            "wait_delta_left_y",
+            "wait_delta_right_x",
+            "wait_delta_right_y",
             "wait_roll_x",
             "wait_roll_y",
+            "wait_times_left",
+            "wait_times_right",
+            "wait_left_x",
+            "wait_left_y",
+            "wait_right_x",
+            "wait_right_y",
             "slide_x",
             "slide_y",
             "ew_roll_x",
             "ew_roll_y",
+            "iti_times_after_correct",
+            "iti_times_after_incorrect",
+            "iti_times_after_ew",
+            "iti_times_after_no_choice",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
@@ -725,20 +761,24 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         # P(right) and chronometric charts have one trace each
         self.assertEqual(len(figures[1].data), 1)
         self.assertEqual(len(figures[2].data), 1)
-        # Wait-floor plot (index 8): raw markers + rolling line = 2 traces
-        self.assertEqual(len(figures[8].data), 2)
+        # Wait-floor plot includes aggregate + split traces with aggregate visible by default.
+        self.assertGreaterEqual(len(figures[8].data), 2)
         # Timing scatter panels apply robust default y-axis clipping.
         self.assertIsNotNone(figures[4].layout.yaxis.range)
         self.assertIsNotNone(figures[6].layout.yaxis.range)
         self.assertIsNotNone(figures[8].layout.yaxis.range)
-        # Wait-floor-hist (index 9): single Histogram trace
-        self.assertEqual(len(figures[9].data), 1)
+        # Wait-floor-hist includes aggregate + split traces.
+        self.assertGreaterEqual(len(figures[9].data), 1)
         self.assertIsInstance(figures[9].data[0], go.Histogram)
         # Response-time plot (index 10): combined histogram + split hidden traces
         self.assertGreaterEqual(len(figures[10].data), 3)
         self.assertIsInstance(figures[10].data[0], go.Histogram)
-        # ITI dist (index 11) is histogram in single-subject mode
-        self.assertEqual(len(figures[11].data), 1)
+        self.assertEqual(figures[10].layout.updatemenus[0].buttons[0].label, "Outcome")
+        self.assertEqual(figures[6].layout.updatemenus[0].buttons[0].label, "Choice")
+        self.assertEqual(figures[8].layout.updatemenus[0].buttons[0].label, "Choice")
+        self.assertEqual(figures[11].layout.updatemenus[0].buttons[0].label, "Outcome")
+        # ITI dist (index 11) includes aggregate + split traces.
+        self.assertGreaterEqual(len(figures[11].data), 1)
         self.assertIsInstance(figures[11].data[0], go.Histogram)
         # Trial-count-time (index 12) is bar in single-subject mode
         self.assertEqual(len(figures[12].data), 1)
@@ -767,8 +807,8 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.assertEqual(figures[0].data[0].orientation, "h")
         # Initiation dist uses Box in multi mode
         self.assertIsInstance(figures[5].data[0], go.Box)
-        # Wait floor (index 8): raw + rolling traces per subject (2 subjects = 4)
-        self.assertEqual(len(figures[8].data), 4)
+        # Wait floor includes aggregate + split traces in multi-subject mode.
+        self.assertGreaterEqual(len(figures[8].data), 4)
         # Wait-floor dist (index 9) uses Box in multi mode
         self.assertIsInstance(figures[9].data[0], go.Box)
         # Response-time plot (index 10) uses per-subject box plots in multi mode
