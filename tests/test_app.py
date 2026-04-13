@@ -249,7 +249,7 @@ class TestAppUtilities(unittest.TestCase):
         with mock.patch.object(self.appmod, "get_sessions", return_value=[]):
             figures = update_single(["subject-a"], [], None, 0, None)
 
-        self.assertEqual(len(figures), 11)
+        self.assertEqual(len(figures), 12)
         self.assertEqual(
             figures[0].layout["annotations"][0]["text"], "Select subject(s)"
         )

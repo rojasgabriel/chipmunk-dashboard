@@ -689,7 +689,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         ):
             figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
 
-        self.assertEqual(len(figures), 11)
+        self.assertEqual(len(figures), 12)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
         # Single-subject outcome chart: 4 vertical bar traces (one per outcome type)
@@ -699,6 +699,9 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.assertEqual(len(figures[2].data), 1)
         # Wait-floor plot (index 8): raw markers + rolling line = 2 traces
         self.assertEqual(len(figures[8].data), 2)
+        # Wait-floor-hist (index 9): single Histogram trace
+        self.assertEqual(len(figures[9].data), 1)
+        self.assertIsInstance(figures[9].data[0], go.Histogram)
 
     def test_update_single_multi_subject_uses_box_and_horizontal_bars(self):
         app = self.appmod.create_app()
@@ -714,7 +717,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
                 ["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01"
             )
 
-        self.assertEqual(len(figures), 11)
+        self.assertEqual(len(figures), 12)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
         # Multi-col outcome chart: 4 horizontal bar traces
@@ -725,8 +728,10 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.assertIsInstance(figures[5].data[0], go.Box)
         # Wait floor (index 8): raw + rolling traces per subject (2 subjects = 4)
         self.assertEqual(len(figures[8].data), 4)
-        # Reaction time dist uses Box in multi mode
-        self.assertIsInstance(figures[10].data[0], go.Box)
+        # Wait-floor dist (index 9) uses Box in multi mode
+        self.assertIsInstance(figures[9].data[0], go.Box)
+        # Reaction time dist (index 11) uses Box in multi mode
+        self.assertIsInstance(figures[11].data[0], go.Box)
 
     def test_update_multi_with_data_returns_eight_figures(self):
         app = self.appmod.create_app()
@@ -770,7 +775,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
                 ["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01"
             )
 
-        self.assertEqual(len(figures), 11)
+        self.assertEqual(len(figures), 12)
 
     def test_update_multi_recent_and_older_subjects_are_merged(self):
         """Subjects from both checklists are combined and processed together."""
@@ -790,7 +795,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         # ses = "" which is falsy → the loop body is skipped via continue.
         with mock.patch.object(self.appmod, "get_sessions", return_value=[""]):
             figures = update_single(["subject-a"], [], None, 0, None)
-        self.assertEqual(len(figures), 11)
+        self.assertEqual(len(figures), 12)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
 
@@ -805,7 +810,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             mock.patch.object(self.appmod, "session_metrics", return_value=None),
         ):
             figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
-        self.assertEqual(len(figures), 11)
+        self.assertEqual(len(figures), 12)
 
     def test_update_multi_skips_subject_when_multisession_metrics_none(self):
         """Line 1128: `if not ms: continue` — multisession_metrics returns None."""

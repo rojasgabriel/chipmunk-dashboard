@@ -352,12 +352,10 @@ def create_app() -> Dash:
             ),
             # Row 1: Performance / Outcomes
             _row("frac-correct", "p-right", "chrono", "session-perf"),
-            # Row 2: Initiation
-            _row("init-line", "init-hist"),
-            # Row 3: Wait (Delta + Floor)
-            _row("wait-delta-line", "wait-delta-hist", "wait-floor-line"),
-            # Row 4: Reaction
-            _row("react-line", "react-hist"),
+            # Row 2: Timing — per-trial lines (init, wait-delta, wait-floor, react)
+            _row("init-line", "wait-delta-line", "wait-floor-line", "react-line"),
+            # Row 3: Timing — distributions for each column above
+            _row("init-hist", "wait-delta-hist", "wait-floor-hist", "react-hist"),
         ]
     )
 
@@ -633,6 +631,7 @@ def create_app() -> Dash:
         Output("wait-delta-line", "figure"),
         Output("wait-delta-hist", "figure"),
         Output("wait-floor-line", "figure"),
+        Output("wait-floor-hist", "figure"),
         Output("react-line", "figure"),
         Output("react-hist", "figure"),
         Input("subjects-recent", "value"),
@@ -656,7 +655,7 @@ def create_app() -> Dash:
             - ``session-date.date``
 
         Callback Outputs:
-            Eleven figures for outcomes, psychometric/chronometric, performance,
+            Twelve figures for outcomes, psychometric/chronometric, performance,
             initiation, wait-delta, wait-floor, and reaction-time views.
 
         Args:
@@ -668,13 +667,13 @@ def create_app() -> Dash:
                 ``None``. When set and multiple subjects are selected, each
                 additional subject resolves its session from this date.
         Returns:
-            An 11-item tuple of Plotly figures in callback output order.
+            A 12-item tuple of Plotly figures in callback output order.
 
         Side Effects:
             Reads cached session metrics and emits performance logs when enabled.
         """
         start = time.perf_counter()
-        n = 11
+        n = 12
         subjects = (subjects_recent or []) + (subjects_older or [])
 
         sessions_by_subject = {s: get_sessions(s) for s in subjects}
@@ -694,7 +693,7 @@ def create_app() -> Dash:
         fig_pr, fig_ch, fig_sp = go.Figure(), go.Figure(), go.Figure()
         fig_il, fig_ih = go.Figure(), go.Figure()
         fig_wdl, fig_wdh = go.Figure(), go.Figure()
-        fig_wfl = go.Figure()
+        fig_wfl, fig_wfh = go.Figure(), go.Figure()
         fig_rl, fig_rh = go.Figure(), go.Figure()
 
         # Collect outcome totals for multi-subject horizontal bars
@@ -971,6 +970,37 @@ def create_app() -> Dash:
                         )
                     )
 
+                if multi:
+                    fig_wfh.add_trace(
+                        go.Box(
+                            y=sm["wait_times"],
+                            name=subj,
+                            marker_color=c,
+                            legendgroup=grp,
+                            showlegend=False,
+                            boxmean=True,
+                        )
+                    )
+                else:
+                    fig_wfh.add_trace(
+                        go.Histogram(
+                            x=sm["wait_times"],
+                            nbinsx=30,
+                            name=subj,
+                            marker_color=c,
+                            showlegend=False,
+                            opacity=0.8,
+                        )
+                    )
+                    if sm["wait_times"]:
+                        med_val = np.median(sm["wait_times"])
+                        fig_wfh.add_vline(
+                            x=med_val,
+                            line_dash="dash",
+                            line_color="black",
+                            line_width=1.5,
+                        )
+
             # --- Row 4: Reaction Time ---
 
             # Line (RT vs trial)
@@ -1171,6 +1201,15 @@ def create_app() -> Dash:
             xaxis_title="trial number",
             yaxis_title="time (s)",
         )
+        if multi:
+            _layout(fig_wfh, title="Wait Floor Dist.", yaxis_title="time (s)")
+        else:
+            _layout(
+                fig_wfh,
+                title="Wait Floor Dist.",
+                xaxis_title="time (s)",
+                yaxis_title="count",
+            )
 
         # Row 4
         _layout(
@@ -1200,6 +1239,7 @@ def create_app() -> Dash:
             fig_wdl,
             fig_wdh,
             fig_wfl,
+            fig_wfh,
             fig_rl,
             fig_rh,
         )
