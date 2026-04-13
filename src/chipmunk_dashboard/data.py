@@ -611,16 +611,19 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         rt_roll_x.append(int(np.mean(rt_trial_nums[start : start + win])))
         rt_roll_y.append(float(np.median(rt_vals[start : start + win])))
 
-    # Gap times: response - react, split by outcome for violin rendering.
-    gap_raw = trials["t_response"].to_numpy() - trials["t_react"].to_numpy()
+    # Response times (movement time): response - react, split by outcome.
+    response_raw = trials["t_response"].to_numpy() - trials["t_react"].to_numpy()
     rewarded = trials["rewarded"].to_numpy()
     punished = trials["punished"].to_numpy()
-    gap_mask = (
-        np.isfinite(gap_raw) & (gap_raw > 0) & (gap_raw < 5) & (trials.response != 0)
+    response_mask = (
+        np.isfinite(response_raw)
+        & (response_raw > 0)
+        & (response_raw < 5)
+        & (trials.response != 0)
     )
-    gap_times = gap_raw[gap_mask]
-    gap_correct = gap_raw[gap_mask & (rewarded == 1)]
-    gap_incorrect = gap_raw[gap_mask & (punished == 1)]
+    response_times = response_raw[response_mask]
+    response_correct = response_raw[response_mask & (rewarded == 1)]
+    response_incorrect = response_raw[response_mask & (punished == 1)]
 
     # Inter-trial intervals from consecutive trial start times.
     start_times = trials["t_start"].to_numpy()
@@ -677,9 +680,9 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         rt_vals=rt_vals.tolist(),
         rt_roll_x=rt_roll_x,
         rt_roll_y=rt_roll_y,
-        gap_times=gap_times.tolist(),
-        gap_times_correct=gap_correct.tolist(),
-        gap_times_incorrect=gap_incorrect.tolist(),
+        response_times=response_times.tolist(),
+        response_times_correct=response_correct.tolist(),
+        response_times_incorrect=response_incorrect.tolist(),
         iti_times=iti_vals.tolist(),
         trial_count_x=trial_count_x,
         trial_count_y=trial_count_vals.astype(float).tolist(),

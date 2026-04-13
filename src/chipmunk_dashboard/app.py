@@ -399,8 +399,8 @@ def create_app() -> Dash:
             _row("init-line", "wait-delta-line", "wait-floor-line"),
             # Row 3: Timing — distributions for each column above
             _row("init-hist", "wait-delta-hist", "wait-floor-hist"),
-            # Row 4: Gap-time + session pacing
-            _row("gap-time", "iti-dist", "trial-count-time"),
+            # Row 4: Response-time + session pacing
+            _row("response-time", "iti-dist", "trial-count-time"),
         ]
     )
 
@@ -677,7 +677,7 @@ def create_app() -> Dash:
         Output("wait-delta-hist", "figure"),
         Output("wait-floor-line", "figure"),
         Output("wait-floor-hist", "figure"),
-        Output("gap-time", "figure"),
+        Output("response-time", "figure"),
         Output("iti-dist", "figure"),
         Output("trial-count-time", "figure"),
         Input("subjects-recent", "value"),
@@ -702,7 +702,7 @@ def create_app() -> Dash:
 
         Callback Outputs:
             Thirteen figures for outcomes, psychometric/chronometric, performance,
-            initiation, post-go center dwell, wait-floor, gap-time, and session
+            initiation, post-go center dwell, wait-floor, response-time, and session
             pacing views.
 
         Args:
@@ -741,12 +741,15 @@ def create_app() -> Dash:
         fig_il, fig_ih = go.Figure(), go.Figure()
         fig_wdl, fig_wdh = go.Figure(), go.Figure()
         fig_wfl, fig_wfh = go.Figure(), go.Figure()
-        fig_gt = go.Figure()
+        fig_rt = go.Figure()
         fig_itid = go.Figure()
         fig_tct = go.Figure()
         init_y_vals: list[float] = []
         wait_delta_y_vals: list[float] = []
         wait_floor_y_vals: list[float] = []
+        rt_combined_idx: list[int] = []
+        rt_split_idx: list[int] = []
+        rt_trace_count = 0
 
         # Collect outcome totals for multi-subject horizontal bars
         multi_outcome_data = []
@@ -1059,67 +1062,101 @@ def create_app() -> Dash:
                             line_width=1.5,
                         )
 
-            # --- Row 4: Gap Time by Outcome ---
-            gap_correct = sm.get("gap_times_correct", [])
-            gap_incorrect = sm.get("gap_times_incorrect", [])
+            # --- Row 4: Response Time ---
+            response_times = sm.get("response_times", [])
+            response_correct = sm.get("response_times_correct", [])
+            response_incorrect = sm.get("response_times_incorrect", [])
             if multi_col:
-                if gap_correct:
-                    fig_gt.add_trace(
-                        go.Violin(
-                            x=[subj] * len(gap_correct),
-                            y=gap_correct,
+                if response_times:
+                    fig_rt.add_trace(
+                        go.Box(
+                            x=[subj] * len(response_times),
+                            y=response_times,
+                            name=subj,
+                            legendgroup=grp,
+                            showlegend=False,
+                            marker_color=c,
+                            boxmean=True,
+                            visible=True,
+                        )
+                    )
+                    rt_combined_idx.append(rt_trace_count)
+                    rt_trace_count += 1
+                if response_correct:
+                    fig_rt.add_trace(
+                        go.Box(
+                            x=[subj] * len(response_correct),
+                            y=response_correct,
                             name="Correct",
-                            legendgroup="gap-correct",
+                            legendgroup="rt-correct",
                             showlegend=i == 0,
-                            line_color="mediumseagreen",
-                            side="negative",
-                            meanline_visible=True,
-                            points=False,
-                            scalegroup=subj,
+                            marker_color="mediumseagreen",
+                            boxmean=True,
+                            offsetgroup="correct",
+                            visible=False,
                         )
                     )
-                if gap_incorrect:
-                    fig_gt.add_trace(
-                        go.Violin(
-                            x=[subj] * len(gap_incorrect),
-                            y=gap_incorrect,
+                    rt_split_idx.append(rt_trace_count)
+                    rt_trace_count += 1
+                if response_incorrect:
+                    fig_rt.add_trace(
+                        go.Box(
+                            x=[subj] * len(response_incorrect),
+                            y=response_incorrect,
                             name="Incorrect",
-                            legendgroup="gap-incorrect",
+                            legendgroup="rt-incorrect",
                             showlegend=i == 0,
-                            line_color="tomato",
-                            side="positive",
-                            meanline_visible=True,
-                            points=False,
-                            scalegroup=subj,
+                            marker_color="tomato",
+                            boxmean=True,
+                            offsetgroup="incorrect",
+                            visible=False,
                         )
                     )
+                    rt_split_idx.append(rt_trace_count)
+                    rt_trace_count += 1
             else:
-                if gap_correct:
-                    fig_gt.add_trace(
-                        go.Violin(
-                            x=["Correct"] * len(gap_correct),
-                            y=gap_correct,
+                if response_times:
+                    fig_rt.add_trace(
+                        go.Histogram(
+                            x=response_times,
+                            nbinsx=30,
+                            name="All outcomes",
+                            marker_color=c,
+                            showlegend=False,
+                            opacity=0.8,
+                            visible=True,
+                        )
+                    )
+                    rt_combined_idx.append(rt_trace_count)
+                    rt_trace_count += 1
+                if response_correct:
+                    fig_rt.add_trace(
+                        go.Histogram(
+                            x=response_correct,
+                            nbinsx=30,
                             name="Correct",
-                            legendgroup="gap-correct",
+                            marker_color="mediumseagreen",
                             showlegend=True,
-                            line_color="mediumseagreen",
-                            meanline_visible=True,
-                            points=False,
+                            opacity=0.65,
+                            visible=False,
                         )
                     )
-                if gap_incorrect:
-                    fig_gt.add_trace(
-                        go.Violin(
-                            x=["Incorrect"] * len(gap_incorrect),
-                            y=gap_incorrect,
+                    rt_split_idx.append(rt_trace_count)
+                    rt_trace_count += 1
+                if response_incorrect:
+                    fig_rt.add_trace(
+                        go.Histogram(
+                            x=response_incorrect,
+                            nbinsx=30,
                             name="Incorrect",
-                            legendgroup="gap-incorrect",
+                            marker_color="tomato",
                             showlegend=True,
-                            line_color="tomato",
-                            meanline_visible=True,
-                            points=False,
+                            opacity=0.65,
+                            visible=False,
                         )
                     )
+                    rt_split_idx.append(rt_trace_count)
+                    rt_trace_count += 1
 
             iti_vals = sm.get("iti_times", [])
             if iti_vals:
@@ -1332,12 +1369,48 @@ def create_app() -> Dash:
             )
 
         # Row 4
-        _layout(
-            fig_gt,
-            title="Gap time by outcome",
-            xaxis_title="subject" if multi_col else "outcome",
-            yaxis_title="time (s)",
-        )
+        if rt_combined_idx and rt_split_idx:
+            off_visible = [idx in rt_combined_idx for idx in range(rt_trace_count)]
+            on_visible = [idx in rt_split_idx for idx in range(rt_trace_count)]
+            fig_rt.update_layout(
+                updatemenus=[
+                    dict(
+                        type="buttons",
+                        direction="left",
+                        x=1.0,
+                        y=1.18,
+                        xanchor="right",
+                        yanchor="top",
+                        buttons=[
+                            dict(
+                                label="Split: Off",
+                                method="restyle",
+                                args=[{"visible": off_visible}],
+                            ),
+                            dict(
+                                label="Split: On",
+                                method="restyle",
+                                args=[{"visible": on_visible}],
+                            ),
+                        ],
+                    )
+                ]
+            )
+        if multi_col:
+            _layout(
+                fig_rt,
+                title="Response Time",
+                xaxis_title="subject",
+                yaxis_title="time (s)",
+                boxmode="group",
+            )
+        else:
+            _layout(
+                fig_rt,
+                title="Response Time",
+                xaxis_title="time (s)",
+                yaxis_title="count",
+            )
         if multi_col:
             _layout(fig_itid, title="ITIs", yaxis_title="time (s)")
         else:
@@ -1366,7 +1439,7 @@ def create_app() -> Dash:
             fig_wdh,
             fig_wfl,
             fig_wfh,
-            fig_gt,
+            fig_rt,
             fig_itid,
             fig_tct,
         )

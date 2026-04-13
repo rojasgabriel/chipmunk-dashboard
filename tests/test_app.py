@@ -254,7 +254,7 @@ class TestAppUtilities(unittest.TestCase):
             figures[0].layout["annotations"][0]["text"], "Select subject(s)"
         )
 
-    def test_update_single_builds_gap_time_figure(self) -> None:
+    def test_update_single_builds_response_time_figure(self) -> None:
         app = self.appmod.create_app()
         update_single = app.callbacks["_update_single"]
 
@@ -295,8 +295,9 @@ class TestAppUtilities(unittest.TestCase):
             "rt_vals": [],
             "rt_roll_x": [],
             "rt_roll_y": [],
-            "gap_times_correct": [0.2, 0.25],
-            "gap_times_incorrect": [0.4],
+            "response_times": [0.2, 0.25, 0.4],
+            "response_times_correct": [0.2, 0.25],
+            "response_times_incorrect": [0.4],
             "iti_times": [0.8, 1.1, 1.0],
             "trial_count_x": [2.5, 7.5],
             "trial_count_y": [20.0, 18.0],
@@ -311,8 +312,8 @@ class TestAppUtilities(unittest.TestCase):
             figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
 
         self.assertEqual(len(figures), 13)
-        self.assertEqual(figures[10].layout["title"]["text"], "Gap time by outcome")
-        self.assertEqual(len(figures[10].traces), 2)
+        self.assertEqual(figures[10].layout["title"]["text"], "Response Time")
+        self.assertEqual(len(figures[10].traces), 3)
         self.assertIn("yaxis_range", figures[4].layout)  # init-line
         self.assertIn("yaxis_range", figures[6].layout)  # wait-delta-line
         self.assertIn("yaxis_range", figures[8].layout)  # wait-floor-line

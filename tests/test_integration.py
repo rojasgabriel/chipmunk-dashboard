@@ -222,9 +222,9 @@ def _make_session_metrics() -> dict:
         wait_delta_y=rng.uniform(0.0, 1.0, nroll).tolist(),
         wait_roll_x=roll_x,
         wait_roll_y=rng.uniform(0.5, 2.0, nroll).tolist(),
-        gap_times=rng.uniform(0.05, 0.8, n).tolist(),
-        gap_times_correct=rng.uniform(0.05, 0.5, n // 2).tolist(),
-        gap_times_incorrect=rng.uniform(0.2, 0.9, n // 2).tolist(),
+        response_times=rng.uniform(0.05, 0.8, n).tolist(),
+        response_times_correct=rng.uniform(0.05, 0.5, n // 2).tolist(),
+        response_times_incorrect=rng.uniform(0.2, 0.9, n // 2).tolist(),
         iti_times=rng.uniform(0.5, 3.0, n).tolist(),
         trial_count_x=[2.5, 7.5, 12.5, 17.5],
         trial_count_y=[25.0, 20.0, 18.0, 12.0],
@@ -584,9 +584,9 @@ class TestSessionMetricsWithRealLibs(unittest.TestCase):
             "rt_vals",
             "rt_roll_x",
             "rt_roll_y",
-            "gap_times",
-            "gap_times_correct",
-            "gap_times_incorrect",
+            "response_times",
+            "response_times_correct",
+            "response_times_incorrect",
             "iti_times",
             "trial_count_x",
             "trial_count_y",
@@ -734,9 +734,9 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         # Wait-floor-hist (index 9): single Histogram trace
         self.assertEqual(len(figures[9].data), 1)
         self.assertIsInstance(figures[9].data[0], go.Histogram)
-        # Gap-time plot (index 10): violin traces by outcome
-        self.assertGreaterEqual(len(figures[10].data), 2)
-        self.assertIsInstance(figures[10].data[0], go.Violin)
+        # Response-time plot (index 10): combined histogram + split hidden traces
+        self.assertGreaterEqual(len(figures[10].data), 3)
+        self.assertIsInstance(figures[10].data[0], go.Histogram)
         # ITI dist (index 11) is histogram in single-subject mode
         self.assertEqual(len(figures[11].data), 1)
         self.assertIsInstance(figures[11].data[0], go.Histogram)
@@ -771,9 +771,8 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.assertEqual(len(figures[8].data), 4)
         # Wait-floor dist (index 9) uses Box in multi mode
         self.assertIsInstance(figures[9].data[0], go.Box)
-        # Gap-time plot (index 10) uses split violin traces
-        self.assertGreaterEqual(len(figures[10].data), 2)
-        self.assertIsInstance(figures[10].data[0], go.Violin)
+        # Response-time plot (index 10) uses per-subject box plots in multi mode
+        self.assertIsInstance(figures[10].data[0], go.Box)
         # ITI dist (index 11) uses Box in multi mode
         self.assertIsInstance(figures[11].data[0], go.Box)
         # Trial-count-time (index 12) uses scatter in multi mode
