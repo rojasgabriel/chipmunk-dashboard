@@ -249,10 +249,99 @@ class TestAppUtilities(unittest.TestCase):
         with mock.patch.object(self.appmod, "get_sessions", return_value=[]):
             figures = update_single(["subject-a"], [], None, 0, None)
 
-        self.assertEqual(len(figures), 12)
+        self.assertEqual(len(figures), 13)
         self.assertEqual(
             figures[0].layout["annotations"][0]["text"], "Select subject(s)"
         )
+
+    def test_update_single_builds_response_time_figure(self) -> None:
+        app = self.appmod.create_app()
+        update_single = app.callbacks["_update_single"]
+
+        # Minimal trace factories so fake graph_objects supports callback execution.
+        trace_names = ("Bar", "Scatter", "Scattergl", "Box", "Histogram", "Violin")
+        for trace_name in trace_names:
+            setattr(
+                self.appmod.go,
+                trace_name,
+                lambda **kw: {"trace": "generic", "kwargs": kw},
+            )
+
+        metrics = {
+            "stims": [0.0],
+            "n_correct": [1],
+            "n_incorrect": [0],
+            "n_ew": [0],
+            "n_no_choice": [0],
+            "p_right": [0.5],
+            "median_rt": [0.2],
+            "slide_x": [],
+            "slide_y": [],
+            "ew_roll_x": [],
+            "ew_roll_y": [],
+            "init_trial_nums": [],
+            "init_times": [],
+            "init_roll_x": [],
+            "init_roll_y": [],
+            "wait_delta_times": [0.2, 0.3],
+            "wait_trial_nums": [1, 2],
+            "wait_delta_x": [],
+            "wait_delta_y": [],
+            "wait_delta_left_times": [0.12, 0.15],
+            "wait_delta_right_times": [0.2, 0.24],
+            "wait_trial_nums_left": [1, 3],
+            "wait_trial_nums_right": [2, 4],
+            "wait_delta_left_x": [],
+            "wait_delta_left_y": [],
+            "wait_delta_right_x": [],
+            "wait_delta_right_y": [],
+            "wait_times": [0.5, 0.6],
+            "wait_roll_x": [],
+            "wait_roll_y": [],
+            "wait_times_left": [0.5],
+            "wait_times_right": [0.6],
+            "wait_left_x": [],
+            "wait_left_y": [],
+            "wait_right_x": [],
+            "wait_right_y": [],
+            "rts": [],
+            "rt_trial_nums": [],
+            "rt_vals": [],
+            "rt_roll_x": [],
+            "rt_roll_y": [],
+            "response_times": [0.2, 0.25, 0.4],
+            "response_times_left": [0.2, 0.25],
+            "response_times_right": [0.4],
+            "iti_times": [0.8, 1.1, 1.0],
+            "iti_times_after_correct": [0.8],
+            "iti_times_after_incorrect": [1.1],
+            "iti_times_after_ew": [1.0],
+            "iti_times_after_no_choice": [0.9],
+            "trial_count_x": [2.5, 7.5],
+            "trial_count_y": [20.0, 18.0],
+        }
+
+        with (
+            mock.patch.object(
+                self.appmod, "get_sessions", return_value=["20260101_010101"]
+            ),
+            mock.patch.object(self.appmod, "session_metrics", return_value=metrics),
+        ):
+            figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
+
+        self.assertEqual(len(figures), 13)
+        self.assertEqual(figures[10].layout["title"]["text"], "Response Time")
+        self.assertEqual(len(figures[10].traces), 3)
+        self.assertIn("yaxis_range", figures[4].layout)  # init-line
+        self.assertIn("yaxis_range", figures[6].layout)  # wait-delta-line
+        self.assertIn("yaxis_range", figures[8].layout)  # wait-floor-line
+        self.assertIn("updatemenus", figures[6].layout)  # dwell choice toggle
+        self.assertIn("updatemenus", figures[8].layout)  # wait-floor choice toggle
+        self.assertIn("updatemenus", figures[10].layout)  # response choice toggle
+        self.assertEqual(
+            figures[10].layout["updatemenus"][0]["buttons"][0]["label"], "Choice"
+        )
+        self.assertIn("updatemenus", figures[11].layout)  # iti outcome toggle
 
     def test_update_multi_returns_empty_figures_when_no_subjects(self) -> None:
         app = self.appmod.create_app()

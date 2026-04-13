@@ -5,6 +5,7 @@ from typing import Any, cast
 import os
 import time
 import logging
+import math
 from datetime import date as _date
 
 from dash import Dash, ctx, dcc, html, Input, Output, State
@@ -29,6 +30,7 @@ _AXIS_CLEAN = dict(showgrid=False, zeroline=False, tickfont=dict(color="#56606b"
 _LEGEND: dict[str, Any] = dict(visible=False)
 _PLOT_H = "280px"
 _MAX_W = "560px"  # max width per plot
+_TIMING_Y_CLIP_PCT = 95.0
 _PROFILE_PERF = os.getenv("CHIPMUNK_PROFILE", "0") == "1"
 _LOGGER = logging.getLogger(__name__)
 _THEME = dict(
@@ -100,6 +102,47 @@ def _layout(fig: go.Figure, **kw) -> None:
     # Update defaults with provided kwargs
     config.update(kw)
     fig.update_layout(**config)
+
+
+def _percentile(values: list[float], pct: float) -> float:
+    """Compute a percentile with linear interpolation."""
+    if not values:
+        return float("nan")
+    if len(values) == 1:
+        return float(values[0])
+    p = min(100.0, max(0.0, float(pct)))
+    sorted_vals = sorted(float(v) for v in values)
+    pos = (len(sorted_vals) - 1) * (p / 100.0)
+    lo = int(math.floor(pos))
+    hi = int(math.ceil(pos))
+    if lo == hi:
+        return sorted_vals[lo]
+    frac = pos - lo
+    return sorted_vals[lo] * (1.0 - frac) + sorted_vals[hi] * frac
+
+
+def _robust_y_range(
+    values: list[float],
+    pct: float = _TIMING_Y_CLIP_PCT,
+    lower_bound: float | None = None,
+    min_span: float = 0.05,
+) -> list[float] | None:
+    """Return a median-centered default y-range clipped by percentile radius."""
+    finite = [float(v) for v in values if v is not None and math.isfinite(float(v))]
+    if len(finite) < 2:
+        return None
+    med = _percentile(finite, 50.0)
+    radius = _percentile([abs(v - med) for v in finite], pct)
+    if not math.isfinite(radius) or radius <= 0:
+        radius = min_span
+
+    lo = med - radius
+    hi = med + radius
+    if lower_bound is not None:
+        lo = max(lo, float(lower_bound))
+    if hi <= lo:
+        hi = lo + min_span
+    return [float(lo), float(hi)]
 
 
 def _perf_log(label: str, start_time: float, **fields) -> None:
@@ -352,10 +395,12 @@ def create_app() -> Dash:
             ),
             # Row 1: Performance / Outcomes
             _row("frac-correct", "p-right", "chrono", "session-perf"),
-            # Row 2: Timing — per-trial lines (init, wait-delta, wait-floor, react)
-            _row("init-line", "wait-delta-line", "wait-floor-line", "react-line"),
+            # Row 2: Timing — per-trial lines (init, post-go dwell, wait-floor)
+            _row("init-line", "wait-delta-line", "wait-floor-line"),
             # Row 3: Timing — distributions for each column above
-            _row("init-hist", "wait-delta-hist", "wait-floor-hist", "react-hist"),
+            _row("init-hist", "wait-delta-hist", "wait-floor-hist"),
+            # Row 4: Response-time + session pacing
+            _row("response-time", "iti-dist", "trial-count-time"),
         ]
     )
 
@@ -632,8 +677,9 @@ def create_app() -> Dash:
         Output("wait-delta-hist", "figure"),
         Output("wait-floor-line", "figure"),
         Output("wait-floor-hist", "figure"),
-        Output("react-line", "figure"),
-        Output("react-hist", "figure"),
+        Output("response-time", "figure"),
+        Output("iti-dist", "figure"),
+        Output("trial-count-time", "figure"),
         Input("subjects-recent", "value"),
         Input("subjects-older", "value"),
         Input("session-time", "value"),
@@ -655,8 +701,9 @@ def create_app() -> Dash:
             - ``session-date.date``
 
         Callback Outputs:
-            Twelve figures for outcomes, psychometric/chronometric, performance,
-            initiation, wait-delta, wait-floor, and reaction-time views.
+            Thirteen figures for outcomes, psychometric/chronometric, performance,
+            initiation, post-go center dwell, wait-floor, response-time, and session
+            pacing views.
 
         Args:
             subjects_recent: Selected recent subject names.
@@ -667,13 +714,13 @@ def create_app() -> Dash:
                 ``None``. When set and multiple subjects are selected, each
                 additional subject resolves its session from this date.
         Returns:
-            A 12-item tuple of Plotly figures in callback output order.
+            A 13-item tuple of Plotly figures in callback output order.
 
         Side Effects:
             Reads cached session metrics and emits performance logs when enabled.
         """
         start = time.perf_counter()
-        n = 12
+        n = 13
         subjects = (subjects_recent or []) + (subjects_older or [])
 
         sessions_by_subject = {s: get_sessions(s) for s in subjects}
@@ -694,7 +741,30 @@ def create_app() -> Dash:
         fig_il, fig_ih = go.Figure(), go.Figure()
         fig_wdl, fig_wdh = go.Figure(), go.Figure()
         fig_wfl, fig_wfh = go.Figure(), go.Figure()
-        fig_rl, fig_rh = go.Figure(), go.Figure()
+        fig_rt = go.Figure()
+        fig_itid = go.Figure()
+        fig_tct = go.Figure()
+        init_y_vals: list[float] = []
+        wait_delta_y_vals: list[float] = []
+        wait_floor_y_vals: list[float] = []
+        wdl_combined_idx: list[int] = []
+        wdl_split_idx: list[int] = []
+        wdh_combined_idx: list[int] = []
+        wdh_split_idx: list[int] = []
+        wfl_combined_idx: list[int] = []
+        wfl_split_idx: list[int] = []
+        wfh_combined_idx: list[int] = []
+        wfh_split_idx: list[int] = []
+        itid_combined_idx: list[int] = []
+        itid_split_idx: list[int] = []
+        wdl_trace_count = 0
+        wdh_trace_count = 0
+        wfl_trace_count = 0
+        wfh_trace_count = 0
+        itid_trace_count = 0
+        rt_combined_idx: list[int] = []
+        rt_split_idx: list[int] = []
+        rt_trace_count = 0
 
         # Collect outcome totals for multi-subject horizontal bars
         multi_outcome_data = []
@@ -843,6 +913,8 @@ def create_app() -> Dash:
                             hovertemplate="%{y:.3f}s (roll)" + ht_subj,
                         )
                     )
+                init_y_vals.extend(sm["init_times"])
+                init_y_vals.extend(sm["init_roll_y"])
 
                 # Hist (Box if multi, Hist if single)
                 if multi:
@@ -877,7 +949,7 @@ def create_app() -> Dash:
                             line_width=1.5,
                         )
 
-            # --- Row 3: Wait Delta ---
+            # --- Row 3: Post-Go Center Dwell ---
 
             if sm["wait_delta_times"]:
                 # Line (Delta vs trial num)
@@ -891,8 +963,11 @@ def create_app() -> Dash:
                         legendgroup=grp,
                         marker=dict(color=c, size=3, opacity=0.4),
                         hovertemplate="%{y:.3f}s<extra>raw</extra>",
+                        visible=True,
                     )
                 )
+                wdl_combined_idx.append(wdl_trace_count)
+                wdl_trace_count += 1
                 # Rolling median line - ensure rolling data exists
                 if sm["wait_delta_x"] and sm["wait_delta_y"]:
                     fig_wdl.add_trace(
@@ -905,8 +980,83 @@ def create_app() -> Dash:
                             legendgroup=grp,
                             line=dict(color=c, width=2),
                             hovertemplate="%{y:.3f}s<extra>rolling</extra>",
+                            visible=True,
                         )
                     )
+                    wdl_combined_idx.append(wdl_trace_count)
+                    wdl_trace_count += 1
+                left_delta_times = sm.get("wait_delta_left_times", [])
+                right_delta_times = sm.get("wait_delta_right_times", [])
+                if left_delta_times and sm.get("wait_trial_nums_left", []):
+                    fig_wdl.add_trace(
+                        go.Scattergl(
+                            x=sm["wait_trial_nums_left"],
+                            y=left_delta_times,
+                            mode="markers",
+                            name="Left",
+                            showlegend=i == 0,
+                            legendgroup="choice-left",
+                            marker=dict(color="royalblue", size=3, opacity=0.4),
+                            hovertemplate="%{y:.3f}s<extra>left</extra>",
+                            visible=False,
+                        )
+                    )
+                    wdl_split_idx.append(wdl_trace_count)
+                    wdl_trace_count += 1
+                if sm.get("wait_delta_left_x", []) and sm.get("wait_delta_left_y", []):
+                    fig_wdl.add_trace(
+                        go.Scatter(
+                            x=sm["wait_delta_left_x"],
+                            y=sm["wait_delta_left_y"],
+                            mode="lines",
+                            name="Left roll",
+                            showlegend=i == 0,
+                            legendgroup="choice-left",
+                            line=dict(color="royalblue", width=2),
+                            hovertemplate="%{y:.3f}s<extra>left rolling</extra>",
+                            visible=False,
+                        )
+                    )
+                    wdl_split_idx.append(wdl_trace_count)
+                    wdl_trace_count += 1
+                if right_delta_times and sm.get("wait_trial_nums_right", []):
+                    fig_wdl.add_trace(
+                        go.Scattergl(
+                            x=sm["wait_trial_nums_right"],
+                            y=right_delta_times,
+                            mode="markers",
+                            name="Right",
+                            showlegend=i == 0,
+                            legendgroup="choice-right",
+                            marker=dict(color="darkorange", size=3, opacity=0.4),
+                            hovertemplate="%{y:.3f}s<extra>right</extra>",
+                            visible=False,
+                        )
+                    )
+                    wdl_split_idx.append(wdl_trace_count)
+                    wdl_trace_count += 1
+                if sm.get("wait_delta_right_x", []) and sm.get(
+                    "wait_delta_right_y", []
+                ):
+                    fig_wdl.add_trace(
+                        go.Scatter(
+                            x=sm["wait_delta_right_x"],
+                            y=sm["wait_delta_right_y"],
+                            mode="lines",
+                            name="Right roll",
+                            showlegend=i == 0,
+                            legendgroup="choice-right",
+                            line=dict(color="darkorange", width=2),
+                            hovertemplate="%{y:.3f}s<extra>right rolling</extra>",
+                            visible=False,
+                        )
+                    )
+                    wdl_split_idx.append(wdl_trace_count)
+                    wdl_trace_count += 1
+                wait_delta_y_vals.extend(sm["wait_delta_times"])
+                wait_delta_y_vals.extend(sm["wait_delta_y"])
+                wait_delta_y_vals.extend(sm.get("wait_delta_left_y", []))
+                wait_delta_y_vals.extend(sm.get("wait_delta_right_y", []))
 
                 # Hist (Box if multi)
                 if multi:
@@ -918,8 +1068,43 @@ def create_app() -> Dash:
                             legendgroup=grp,
                             showlegend=False,
                             boxmean=True,
+                            visible=True,
                         )
                     )
+                    wdh_combined_idx.append(wdh_trace_count)
+                    wdh_trace_count += 1
+                    if left_delta_times:
+                        fig_wdh.add_trace(
+                            go.Box(
+                                x=[subj] * len(left_delta_times),
+                                y=left_delta_times,
+                                name="Left",
+                                marker_color="royalblue",
+                                legendgroup="choice-left",
+                                showlegend=i == 0,
+                                boxmean=True,
+                                offsetgroup="left",
+                                visible=False,
+                            )
+                        )
+                        wdh_split_idx.append(wdh_trace_count)
+                        wdh_trace_count += 1
+                    if right_delta_times:
+                        fig_wdh.add_trace(
+                            go.Box(
+                                x=[subj] * len(right_delta_times),
+                                y=right_delta_times,
+                                name="Right",
+                                marker_color="darkorange",
+                                legendgroup="choice-right",
+                                showlegend=i == 0,
+                                boxmean=True,
+                                offsetgroup="right",
+                                visible=False,
+                            )
+                        )
+                        wdh_split_idx.append(wdh_trace_count)
+                        wdh_trace_count += 1
                 else:
                     fig_wdh.add_trace(
                         go.Histogram(
@@ -929,8 +1114,39 @@ def create_app() -> Dash:
                             marker_color=c,
                             showlegend=False,
                             opacity=0.8,
+                            visible=True,
                         )
                     )
+                    wdh_combined_idx.append(wdh_trace_count)
+                    wdh_trace_count += 1
+                    if left_delta_times:
+                        fig_wdh.add_trace(
+                            go.Histogram(
+                                x=left_delta_times,
+                                nbinsx=30,
+                                name="Left",
+                                marker_color="royalblue",
+                                showlegend=True,
+                                opacity=0.65,
+                                visible=False,
+                            )
+                        )
+                        wdh_split_idx.append(wdh_trace_count)
+                        wdh_trace_count += 1
+                    if right_delta_times:
+                        fig_wdh.add_trace(
+                            go.Histogram(
+                                x=right_delta_times,
+                                nbinsx=30,
+                                name="Right",
+                                marker_color="darkorange",
+                                showlegend=True,
+                                opacity=0.65,
+                                visible=False,
+                            )
+                        )
+                        wdh_split_idx.append(wdh_trace_count)
+                        wdh_trace_count += 1
                     # Add Median Line
                     if sm["wait_delta_times"]:
                         med_val = np.median(sm["wait_delta_times"])
@@ -954,8 +1170,11 @@ def create_app() -> Dash:
                         legendgroup=grp,
                         marker=dict(color=c, size=3, opacity=0.4),
                         hovertemplate="%{y:.3f}s" + ht_subj,
+                        visible=True,
                     )
                 )
+                wfl_combined_idx.append(wfl_trace_count)
+                wfl_trace_count += 1
                 if sm["wait_roll_x"] and sm["wait_roll_y"]:
                     fig_wfl.add_trace(
                         go.Scatter(
@@ -967,8 +1186,81 @@ def create_app() -> Dash:
                             legendgroup=grp,
                             line=dict(color=c, width=2),
                             hovertemplate="%{y:.3f}s (roll)" + ht_subj,
+                            visible=True,
                         )
                     )
+                    wfl_combined_idx.append(wfl_trace_count)
+                    wfl_trace_count += 1
+                wait_left_times = sm.get("wait_times_left", [])
+                wait_right_times = sm.get("wait_times_right", [])
+                if wait_left_times and sm.get("wait_trial_nums_left", []):
+                    fig_wfl.add_trace(
+                        go.Scattergl(
+                            x=sm["wait_trial_nums_left"],
+                            y=wait_left_times,
+                            mode="markers",
+                            name="Left",
+                            showlegend=i == 0,
+                            legendgroup="choice-left",
+                            marker=dict(color="royalblue", size=3, opacity=0.4),
+                            hovertemplate="%{y:.3f}s<extra>left</extra>",
+                            visible=False,
+                        )
+                    )
+                    wfl_split_idx.append(wfl_trace_count)
+                    wfl_trace_count += 1
+                if sm.get("wait_left_x", []) and sm.get("wait_left_y", []):
+                    fig_wfl.add_trace(
+                        go.Scatter(
+                            x=sm["wait_left_x"],
+                            y=sm["wait_left_y"],
+                            mode="lines",
+                            name="Left roll",
+                            showlegend=i == 0,
+                            legendgroup="choice-left",
+                            line=dict(color="royalblue", width=2),
+                            hovertemplate="%{y:.3f}s<extra>left rolling</extra>",
+                            visible=False,
+                        )
+                    )
+                    wfl_split_idx.append(wfl_trace_count)
+                    wfl_trace_count += 1
+                if wait_right_times and sm.get("wait_trial_nums_right", []):
+                    fig_wfl.add_trace(
+                        go.Scattergl(
+                            x=sm["wait_trial_nums_right"],
+                            y=wait_right_times,
+                            mode="markers",
+                            name="Right",
+                            showlegend=i == 0,
+                            legendgroup="choice-right",
+                            marker=dict(color="darkorange", size=3, opacity=0.4),
+                            hovertemplate="%{y:.3f}s<extra>right</extra>",
+                            visible=False,
+                        )
+                    )
+                    wfl_split_idx.append(wfl_trace_count)
+                    wfl_trace_count += 1
+                if sm.get("wait_right_x", []) and sm.get("wait_right_y", []):
+                    fig_wfl.add_trace(
+                        go.Scatter(
+                            x=sm["wait_right_x"],
+                            y=sm["wait_right_y"],
+                            mode="lines",
+                            name="Right roll",
+                            showlegend=i == 0,
+                            legendgroup="choice-right",
+                            line=dict(color="darkorange", width=2),
+                            hovertemplate="%{y:.3f}s<extra>right rolling</extra>",
+                            visible=False,
+                        )
+                    )
+                    wfl_split_idx.append(wfl_trace_count)
+                    wfl_trace_count += 1
+                wait_floor_y_vals.extend(sm["wait_times"])
+                wait_floor_y_vals.extend(sm["wait_roll_y"])
+                wait_floor_y_vals.extend(sm.get("wait_left_y", []))
+                wait_floor_y_vals.extend(sm.get("wait_right_y", []))
 
                 if multi:
                     fig_wfh.add_trace(
@@ -979,8 +1271,43 @@ def create_app() -> Dash:
                             legendgroup=grp,
                             showlegend=False,
                             boxmean=True,
+                            visible=True,
                         )
                     )
+                    wfh_combined_idx.append(wfh_trace_count)
+                    wfh_trace_count += 1
+                    if wait_left_times:
+                        fig_wfh.add_trace(
+                            go.Box(
+                                x=[subj] * len(wait_left_times),
+                                y=wait_left_times,
+                                name="Left",
+                                marker_color="royalblue",
+                                legendgroup="choice-left",
+                                showlegend=i == 0,
+                                boxmean=True,
+                                offsetgroup="left",
+                                visible=False,
+                            )
+                        )
+                        wfh_split_idx.append(wfh_trace_count)
+                        wfh_trace_count += 1
+                    if wait_right_times:
+                        fig_wfh.add_trace(
+                            go.Box(
+                                x=[subj] * len(wait_right_times),
+                                y=wait_right_times,
+                                name="Right",
+                                marker_color="darkorange",
+                                legendgroup="choice-right",
+                                showlegend=i == 0,
+                                boxmean=True,
+                                offsetgroup="right",
+                                visible=False,
+                            )
+                        )
+                        wfh_split_idx.append(wfh_trace_count)
+                        wfh_trace_count += 1
                 else:
                     fig_wfh.add_trace(
                         go.Histogram(
@@ -990,8 +1317,39 @@ def create_app() -> Dash:
                             marker_color=c,
                             showlegend=False,
                             opacity=0.8,
+                            visible=True,
                         )
                     )
+                    wfh_combined_idx.append(wfh_trace_count)
+                    wfh_trace_count += 1
+                    if wait_left_times:
+                        fig_wfh.add_trace(
+                            go.Histogram(
+                                x=wait_left_times,
+                                nbinsx=30,
+                                name="Left",
+                                marker_color="royalblue",
+                                showlegend=True,
+                                opacity=0.65,
+                                visible=False,
+                            )
+                        )
+                        wfh_split_idx.append(wfh_trace_count)
+                        wfh_trace_count += 1
+                    if wait_right_times:
+                        fig_wfh.add_trace(
+                            go.Histogram(
+                                x=wait_right_times,
+                                nbinsx=30,
+                                name="Right",
+                                marker_color="darkorange",
+                                showlegend=True,
+                                opacity=0.65,
+                                visible=False,
+                            )
+                        )
+                        wfh_split_idx.append(wfh_trace_count)
+                        wfh_trace_count += 1
                     if sm["wait_times"]:
                         med_val = np.median(sm["wait_times"])
                         fig_wfh.add_vline(
@@ -1001,67 +1359,237 @@ def create_app() -> Dash:
                             line_width=1.5,
                         )
 
-            # --- Row 4: Reaction Time ---
-
-            # Line (RT vs trial)
-            if sm["rt_trial_nums"]:
-                fig_rl.add_trace(
-                    go.Scattergl(
-                        x=sm["rt_trial_nums"],
-                        y=sm["rt_vals"],
-                        mode="markers",
-                        name=subj,
-                        showlegend=False,
-                        legendgroup=grp,
-                        marker=dict(color=c, size=3, opacity=0.4),
-                        hovertemplate="%{y:.3f}s" + ht_subj,
-                    )
-                )
-                # Rolling
-                if sm["rt_roll_x"]:
-                    fig_rl.add_trace(
-                        go.Scatter(
-                            x=sm["rt_roll_x"],
-                            y=sm["rt_roll_y"],
-                            mode="lines",
-                            name=subj + " roll",
-                            showlegend=False,
+            # --- Row 4: Response Time ---
+            response_times = sm.get("response_times", [])
+            response_left = sm.get("response_times_left", [])
+            response_right = sm.get("response_times_right", [])
+            if multi_col:
+                if response_times:
+                    fig_rt.add_trace(
+                        go.Box(
+                            x=[subj] * len(response_times),
+                            y=response_times,
+                            name=subj,
                             legendgroup=grp,
+                            showlegend=False,
+                            marker_color=c,
+                            boxmean=True,
+                            visible=True,
+                        )
+                    )
+                    rt_combined_idx.append(rt_trace_count)
+                    rt_trace_count += 1
+                if response_left:
+                    fig_rt.add_trace(
+                        go.Box(
+                            x=[subj] * len(response_left),
+                            y=response_left,
+                            name="Left",
+                            legendgroup="rt-left",
+                            showlegend=i == 0,
+                            marker_color="royalblue",
+                            boxmean=True,
+                            offsetgroup="left",
+                            visible=False,
+                        )
+                    )
+                    rt_split_idx.append(rt_trace_count)
+                    rt_trace_count += 1
+                if response_right:
+                    fig_rt.add_trace(
+                        go.Box(
+                            x=[subj] * len(response_right),
+                            y=response_right,
+                            name="Right",
+                            legendgroup="rt-right",
+                            showlegend=i == 0,
+                            marker_color="darkorange",
+                            boxmean=True,
+                            offsetgroup="right",
+                            visible=False,
+                        )
+                    )
+                    rt_split_idx.append(rt_trace_count)
+                    rt_trace_count += 1
+            else:
+                if response_times:
+                    fig_rt.add_trace(
+                        go.Histogram(
+                            x=response_times,
+                            nbinsx=30,
+                            name="All choices",
+                            marker_color=c,
+                            showlegend=False,
+                            opacity=0.8,
+                            visible=True,
+                        )
+                    )
+                    rt_combined_idx.append(rt_trace_count)
+                    rt_trace_count += 1
+                if response_left:
+                    fig_rt.add_trace(
+                        go.Histogram(
+                            x=response_left,
+                            nbinsx=30,
+                            name="Left",
+                            marker_color="royalblue",
+                            showlegend=True,
+                            opacity=0.65,
+                            visible=False,
+                        )
+                    )
+                    rt_split_idx.append(rt_trace_count)
+                    rt_trace_count += 1
+                if response_right:
+                    fig_rt.add_trace(
+                        go.Histogram(
+                            x=response_right,
+                            nbinsx=30,
+                            name="Right",
+                            marker_color="darkorange",
+                            showlegend=True,
+                            opacity=0.65,
+                            visible=False,
+                        )
+                    )
+                    rt_split_idx.append(rt_trace_count)
+                    rt_trace_count += 1
+
+            iti_vals = sm.get("iti_times", [])
+            iti_after_correct = sm.get("iti_times_after_correct", [])
+            iti_after_incorrect = sm.get("iti_times_after_incorrect", [])
+            iti_after_ew = sm.get("iti_times_after_ew", [])
+            iti_after_no_choice = sm.get("iti_times_after_no_choice", [])
+            if iti_vals:
+                if multi_col:
+                    fig_itid.add_trace(
+                        go.Box(
+                            y=iti_vals,
+                            name=subj,
+                            marker_color=c,
+                            legendgroup=grp,
+                            showlegend=False,
+                            boxmean=True,
+                            visible=True,
+                        )
+                    )
+                    itid_combined_idx.append(itid_trace_count)
+                    itid_trace_count += 1
+                    for label, vals, color, group in [
+                        (
+                            "After Correct",
+                            iti_after_correct,
+                            "mediumseagreen",
+                            "iti-correct",
+                        ),
+                        (
+                            "After Incorrect",
+                            iti_after_incorrect,
+                            "tomato",
+                            "iti-incorrect",
+                        ),
+                        ("After EW", iti_after_ew, "slategray", "iti-ew"),
+                        (
+                            "After No Choice",
+                            iti_after_no_choice,
+                            "#6b7280",
+                            "iti-no-choice",
+                        ),
+                    ]:
+                        if vals:
+                            fig_itid.add_trace(
+                                go.Box(
+                                    x=[subj] * len(vals),
+                                    y=vals,
+                                    name=label,
+                                    marker_color=color,
+                                    legendgroup=group,
+                                    showlegend=i == 0,
+                                    boxmean=True,
+                                    offsetgroup=group,
+                                    visible=False,
+                                )
+                            )
+                            itid_split_idx.append(itid_trace_count)
+                            itid_trace_count += 1
+                else:
+                    fig_itid.add_trace(
+                        go.Histogram(
+                            x=iti_vals,
+                            nbinsx=30,
+                            name=subj,
+                            marker_color=c,
+                            showlegend=False,
+                            opacity=0.8,
+                            visible=True,
+                        )
+                    )
+                    itid_combined_idx.append(itid_trace_count)
+                    itid_trace_count += 1
+                    for label, vals, color in [
+                        ("After Correct", iti_after_correct, "mediumseagreen"),
+                        ("After Incorrect", iti_after_incorrect, "tomato"),
+                        ("After EW", iti_after_ew, "slategray"),
+                        ("After No Choice", iti_after_no_choice, "#6b7280"),
+                    ]:
+                        if vals:
+                            fig_itid.add_trace(
+                                go.Histogram(
+                                    x=vals,
+                                    nbinsx=30,
+                                    name=label,
+                                    marker_color=color,
+                                    showlegend=True,
+                                    opacity=0.65,
+                                    visible=False,
+                                )
+                            )
+                            itid_split_idx.append(itid_trace_count)
+                            itid_trace_count += 1
+                    med_val = np.median(iti_vals)
+                    fig_itid.add_vline(
+                        x=med_val,
+                        line_dash="dash",
+                        line_color="black",
+                        line_width=1.5,
+                    )
+
+            trial_count_x = sm.get("trial_count_x", [])
+            trial_count_y = sm.get("trial_count_y", [])
+            if trial_count_x and trial_count_y:
+                if multi_col:
+                    fig_tct.add_trace(
+                        go.Scatter(
+                            x=trial_count_x,
+                            y=trial_count_y,
+                            mode="lines+markers",
+                            name=subj,
+                            showlegend=True,
+                            legendgroup=grp,
+                            marker=dict(color=c, size=6),
                             line=dict(color=c, width=2),
-                            hovertemplate="%{y:.3f}s (roll)" + ht_subj,
+                            hovertemplate="%{y:.0f}<extra>" + subj + "</extra>",
+                        )
+                    )
+                else:
+                    fig_tct.add_trace(
+                        go.Bar(
+                            x=trial_count_x,
+                            y=trial_count_y,
+                            name=subj,
+                            marker_color=c,
+                            showlegend=False,
+                            hovertemplate="%{y:.0f}<extra></extra>",
                         )
                     )
 
-            # Histogram / Box
-            if multi:
-                fig_rh.add_trace(
-                    go.Box(
-                        y=sm["rts"],
-                        name=subj,
-                        marker_color=c,
-                        legendgroup=grp,
-                        showlegend=False,
-                        boxmean=True,
-                    )
-                )
-            else:
-                fig_rh.add_trace(
-                    go.Histogram(
-                        x=sm["rts"],
-                        nbinsx=30,
-                        name=subj,
-                        marker_color=c,
-                        legendgroup=grp,
-                        showlegend=False,
-                        opacity=0.8,
-                    )
-                )
-                # Add Median Line
-                if sm["rts"]:
-                    med_val = np.median(sm["rts"])
-                    fig_rh.add_vline(
-                        x=med_val, line_dash="dash", line_color="black", line_width=1.5
-                    )
+        init_y_range = _robust_y_range(
+            init_y_vals, pct=_TIMING_Y_CLIP_PCT, lower_bound=0
+        )
+        wait_delta_y_range = _robust_y_range(wait_delta_y_vals, pct=_TIMING_Y_CLIP_PCT)
+        wait_floor_y_range = _robust_y_range(
+            wait_floor_y_vals, pct=_TIMING_Y_CLIP_PCT, lower_bound=0
+        )
 
         # --- Layouts ---
 
@@ -1152,21 +1680,12 @@ def create_app() -> Dash:
         fig_sp.add_hline(y=0.5, **_ref_line)  # Ref Line (Updated style)
 
         # Row 2
-
-        # Auto-scale Initiation Y-axis based on 98th percentiles (REVERTED LOGIC)
-        # Recalculate basic 98th percentile logic here if we want *some* filtering,
-        # otherwise, just leave it mostly open but maybe max(10s) floor?
-        # User asked for "normal box plots", "showing outlier points".
-        # If we show outliers, Plotly will scale to them.
-        # But if outliers are HUGE (200s), the box is tiny.
-        # User said "let's back to... showing outlier points".
-        # So we remove manual scaling logic that hides them.
-
         _layout(
             fig_il,
             title="Initiation Times",
             xaxis_title="trial number",
             yaxis_title="time (s)",
+            yaxis_range=init_y_range,
         )
 
         if multi:
@@ -1182,27 +1701,111 @@ def create_app() -> Dash:
         # Row 3
         _layout(
             fig_wdl,
-            title="Wait Delta (Actual - Min)",
+            title="Post-Go Center Dwell",
             xaxis_title="trial number",
             yaxis_title="time (s)",
+            yaxis_range=wait_delta_y_range,
         )
+        if wdl_combined_idx and wdl_split_idx:
+            off_visible = [idx in wdl_combined_idx for idx in range(wdl_trace_count)]
+            on_visible = [idx in wdl_split_idx for idx in range(wdl_trace_count)]
+            fig_wdl.update_layout(
+                updatemenus=[
+                    dict(
+                        type="buttons",
+                        direction="left",
+                        x=1.0,
+                        y=1.18,
+                        xanchor="right",
+                        yanchor="top",
+                        showactive=True,
+                        buttons=[
+                            dict(
+                                label="Choice",
+                                method="restyle",
+                                args=[{"visible": on_visible}],
+                                args2=[{"visible": off_visible}],
+                            )
+                        ],
+                    )
+                ]
+            )
         if multi:
-            _layout(fig_wdh, title="Wait Delta Dist.", yaxis_title="time (s)")
+            _layout(
+                fig_wdh,
+                title="Post-Go Center Dwell Dist.",
+                yaxis_title="time (s)",
+                boxmode="group",
+            )
         else:
             _layout(
                 fig_wdh,
-                title="Wait Delta Dist.",
+                title="Post-Go Center Dwell Dist.",
                 xaxis_title="time (s)",
                 yaxis_title="count",
+            )
+        if wdh_combined_idx and wdh_split_idx:
+            off_visible = [idx in wdh_combined_idx for idx in range(wdh_trace_count)]
+            on_visible = [idx in wdh_split_idx for idx in range(wdh_trace_count)]
+            fig_wdh.update_layout(
+                updatemenus=[
+                    dict(
+                        type="buttons",
+                        direction="left",
+                        x=1.0,
+                        y=1.18,
+                        xanchor="right",
+                        yanchor="top",
+                        showactive=True,
+                        buttons=[
+                            dict(
+                                label="Choice",
+                                method="restyle",
+                                args=[{"visible": on_visible}],
+                                args2=[{"visible": off_visible}],
+                            )
+                        ],
+                    )
+                ]
             )
         _layout(
             fig_wfl,
             title="Wait Floor",
             xaxis_title="trial number",
             yaxis_title="time (s)",
+            yaxis_range=wait_floor_y_range,
         )
+        if wfl_combined_idx and wfl_split_idx:
+            off_visible = [idx in wfl_combined_idx for idx in range(wfl_trace_count)]
+            on_visible = [idx in wfl_split_idx for idx in range(wfl_trace_count)]
+            fig_wfl.update_layout(
+                updatemenus=[
+                    dict(
+                        type="buttons",
+                        direction="left",
+                        x=1.0,
+                        y=1.18,
+                        xanchor="right",
+                        yanchor="top",
+                        showactive=True,
+                        buttons=[
+                            dict(
+                                label="Choice",
+                                method="restyle",
+                                args=[{"visible": on_visible}],
+                                args2=[{"visible": off_visible}],
+                            )
+                        ],
+                    )
+                ]
+            )
         if multi:
-            _layout(fig_wfh, title="Wait Floor Dist.", yaxis_title="time (s)")
+            _layout(
+                fig_wfh,
+                title="Wait Floor Dist.",
+                yaxis_title="time (s)",
+                boxmode="group",
+            )
         else:
             _layout(
                 fig_wfh,
@@ -1210,23 +1813,110 @@ def create_app() -> Dash:
                 xaxis_title="time (s)",
                 yaxis_title="count",
             )
+        if wfh_combined_idx and wfh_split_idx:
+            off_visible = [idx in wfh_combined_idx for idx in range(wfh_trace_count)]
+            on_visible = [idx in wfh_split_idx for idx in range(wfh_trace_count)]
+            fig_wfh.update_layout(
+                updatemenus=[
+                    dict(
+                        type="buttons",
+                        direction="left",
+                        x=1.0,
+                        y=1.18,
+                        xanchor="right",
+                        yanchor="top",
+                        showactive=True,
+                        buttons=[
+                            dict(
+                                label="Choice",
+                                method="restyle",
+                                args=[{"visible": on_visible}],
+                                args2=[{"visible": off_visible}],
+                            )
+                        ],
+                    )
+                ]
+            )
 
         # Row 4
-        _layout(
-            fig_rl,
-            title="Response Times",
-            xaxis_title="trial number",
-            yaxis_title="time (s)",
-        )
-        if multi:
-            _layout(fig_rh, title="Response Time Dist.", yaxis_title="time (s)")
+        if rt_combined_idx and rt_split_idx:
+            off_visible = [idx in rt_combined_idx for idx in range(rt_trace_count)]
+            on_visible = [idx in rt_split_idx for idx in range(rt_trace_count)]
+            fig_rt.update_layout(
+                updatemenus=[
+                    dict(
+                        type="buttons",
+                        direction="left",
+                        x=1.0,
+                        y=1.18,
+                        xanchor="right",
+                        yanchor="top",
+                        showactive=True,
+                        buttons=[
+                            dict(
+                                label="Choice",
+                                method="restyle",
+                                args=[{"visible": on_visible}],
+                                args2=[{"visible": off_visible}],
+                            ),
+                        ],
+                    )
+                ]
+            )
+        if multi_col:
+            _layout(
+                fig_rt,
+                title="Response Time",
+                xaxis_title="subject",
+                yaxis_title="time (s)",
+                boxmode="group",
+            )
         else:
             _layout(
-                fig_rh,
-                title="Response Time Dist.",
+                fig_rt,
+                title="Response Time",
                 xaxis_title="time (s)",
                 yaxis_title="count",
             )
+        if multi_col:
+            _layout(fig_itid, title="ITIs", yaxis_title="time (s)", boxmode="group")
+        else:
+            _layout(
+                fig_itid,
+                title="ITIs",
+                xaxis_title="time (s)",
+                yaxis_title="count",
+            )
+        if itid_combined_idx and itid_split_idx:
+            off_visible = [idx in itid_combined_idx for idx in range(itid_trace_count)]
+            on_visible = [idx in itid_split_idx for idx in range(itid_trace_count)]
+            fig_itid.update_layout(
+                updatemenus=[
+                    dict(
+                        type="buttons",
+                        direction="left",
+                        x=1.0,
+                        y=1.18,
+                        xanchor="right",
+                        yanchor="top",
+                        showactive=True,
+                        buttons=[
+                            dict(
+                                label="Outcome",
+                                method="restyle",
+                                args=[{"visible": on_visible}],
+                                args2=[{"visible": off_visible}],
+                            )
+                        ],
+                    )
+                ]
+            )
+        _layout(
+            fig_tct,
+            title="Trial Counts",
+            xaxis_title="minutes from first trial",
+            yaxis_title="count",
+        )
 
         _perf_log("_update_single", start, subjects=len(valid_subjects), multi=multi)
         return (
@@ -1240,8 +1930,9 @@ def create_app() -> Dash:
             fig_wdh,
             fig_wfl,
             fig_wfh,
-            fig_rl,
-            fig_rh,
+            fig_rt,
+            fig_itid,
+            fig_tct,
         )
 
     # ── Multi-session plots ──────────────────────────────────────────────────

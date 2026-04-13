@@ -611,6 +611,97 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         rt_roll_x.append(int(np.mean(rt_trial_nums[start : start + win])))
         rt_roll_y.append(float(np.median(rt_vals[start : start + win])))
 
+    # Response times (movement time): response - react, split by choice.
+    response_raw = trials["t_response"].to_numpy() - trials["t_react"].to_numpy()
+    response_vals = trials["response"].to_numpy()
+    rewarded = trials["rewarded"].to_numpy()
+    punished = trials["punished"].to_numpy()
+    early_withdrawal = trials["early_withdrawal"].to_numpy()
+    response_mask = (
+        np.isfinite(response_raw)
+        & (response_raw > 0)
+        & (response_raw < 5)
+        & (response_vals != 0)
+    )
+    response_times = response_raw[response_mask]
+    response_left = response_raw[response_mask & (response_vals == -1)]
+    response_right = response_raw[response_mask & (response_vals == 1)]
+
+    # Left/right choice splits for post-go center dwell and wait floor.
+    wait_choice = response_vals[wait_mask]
+    left_choice_mask = wait_choice == -1
+    right_choice_mask = wait_choice == 1
+    wait_delta_left = wait_delta[left_choice_mask]
+    wait_delta_right = wait_delta[right_choice_mask]
+    wait_left = wait_actual[left_choice_mask]
+    wait_right = wait_actual[right_choice_mask]
+    wait_trial_nums_left = wait_trial_nums[left_choice_mask]
+    wait_trial_nums_right = wait_trial_nums[right_choice_mask]
+
+    # Rolling helper used for split traces.
+    def _rolling_median(
+        x_vals: np.ndarray, y_vals: np.ndarray
+    ) -> tuple[list[int], list[float]]:
+        roll_x: list[int] = []
+        roll_y: list[float] = []
+        for start in range(0, len(y_vals) - win + 1, 5):
+            roll_x.append(int(np.mean(x_vals[start : start + win])))
+            roll_y.append(float(np.median(y_vals[start : start + win])))
+        return roll_x, roll_y
+
+    wait_delta_left_roll_x, wait_delta_left_roll_y = _rolling_median(
+        wait_trial_nums_left, wait_delta_left
+    )
+    wait_delta_right_roll_x, wait_delta_right_roll_y = _rolling_median(
+        wait_trial_nums_right, wait_delta_right
+    )
+    wait_left_roll_x, wait_left_roll_y = _rolling_median(
+        wait_trial_nums_left, wait_left
+    )
+    wait_right_roll_x, wait_right_roll_y = _rolling_median(
+        wait_trial_nums_right, wait_right
+    )
+
+    # Inter-trial intervals from consecutive trial starts, split by preceding outcome.
+    start_times_all = trials["t_start"].to_numpy()
+    iti_all: list[float] = []
+    iti_after_correct: list[float] = []
+    iti_after_incorrect: list[float] = []
+    iti_after_ew: list[float] = []
+    iti_after_no_choice: list[float] = []
+    for i in range(len(start_times_all) - 1):
+        start_prev = start_times_all[i]
+        start_next = start_times_all[i + 1]
+        if not (np.isfinite(start_prev) and np.isfinite(start_next)):
+            continue
+        iti = float(start_next - start_prev)
+        if not (0 < iti < 30):
+            continue
+        iti_all.append(iti)
+        if rewarded[i] == 1:
+            iti_after_correct.append(iti)
+        elif punished[i] == 1:
+            iti_after_incorrect.append(iti)
+        elif early_withdrawal[i] == 1:
+            iti_after_ew.append(iti)
+        else:
+            iti_after_no_choice.append(iti)
+    iti_vals = np.asarray(iti_all, dtype=float)
+
+    # Trial-count histogram across session time (5-minute bins from first trial).
+    start_times = start_times_all[np.isfinite(start_times_all)]
+    trial_count_bin_size_min = 5.0
+    if start_times.size:
+        elapsed_min = (start_times - start_times[0]) / 60.0
+        max_elapsed = float(np.max(elapsed_min)) if elapsed_min.size else 0.0
+        max_edge = max(trial_count_bin_size_min, max_elapsed + trial_count_bin_size_min)
+        bin_edges = np.arange(0.0, max_edge + 1e-9, trial_count_bin_size_min)
+        trial_count_vals, _ = np.histogram(elapsed_min, bins=bin_edges)
+        trial_count_x = (bin_edges[:-1] + (trial_count_bin_size_min / 2.0)).tolist()
+    else:
+        trial_count_vals = np.array([])
+        trial_count_x = []
+
     # Rolling median of wait delta (20-trial window)
     wait_delta_x, wait_delta_y = [], []
     for start in range(0, len(wait_delta) - win + 1, 5):
@@ -647,6 +738,16 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         rt_vals=rt_vals.tolist(),
         rt_roll_x=rt_roll_x,
         rt_roll_y=rt_roll_y,
+        response_times=response_times.tolist(),
+        response_times_left=response_left.tolist(),
+        response_times_right=response_right.tolist(),
+        iti_times=iti_vals.tolist(),
+        iti_times_after_correct=iti_after_correct,
+        iti_times_after_incorrect=iti_after_incorrect,
+        iti_times_after_ew=iti_after_ew,
+        iti_times_after_no_choice=iti_after_no_choice,
+        trial_count_x=trial_count_x,
+        trial_count_y=trial_count_vals.astype(float).tolist(),
         init_times=init_vals.tolist(),
         init_trial_nums=init_trial_nums.tolist(),
         init_roll_x=init_roll_x,
@@ -654,11 +755,25 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         wait_times=wait_actual.tolist(),
         wait_min_times=wait_min.tolist(),
         wait_delta_times=wait_delta.tolist(),
+        wait_delta_left_times=wait_delta_left.tolist(),
+        wait_delta_right_times=wait_delta_right.tolist(),
         wait_trial_nums=wait_trial_nums.tolist(),
+        wait_trial_nums_left=wait_trial_nums_left.tolist(),
+        wait_trial_nums_right=wait_trial_nums_right.tolist(),
         wait_delta_x=wait_delta_x,
         wait_delta_y=wait_delta_y,
+        wait_delta_left_x=wait_delta_left_roll_x,
+        wait_delta_left_y=wait_delta_left_roll_y,
+        wait_delta_right_x=wait_delta_right_roll_x,
+        wait_delta_right_y=wait_delta_right_roll_y,
         wait_roll_x=wait_roll_x,
         wait_roll_y=wait_roll_y,
+        wait_times_left=wait_left.tolist(),
+        wait_times_right=wait_right.tolist(),
+        wait_left_x=wait_left_roll_x,
+        wait_left_y=wait_left_roll_y,
+        wait_right_x=wait_right_roll_x,
+        wait_right_y=wait_right_roll_y,
         slide_x=slide_x,  # rolling performance x
         slide_y=slide_y,  # rolling performance y
         ew_roll_x=ew_roll_x,  # rolling EW x
