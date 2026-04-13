@@ -611,6 +611,36 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         rt_roll_x.append(int(np.mean(rt_trial_nums[start : start + win])))
         rt_roll_y.append(float(np.median(rt_vals[start : start + win])))
 
+    # Gap times: response - react, split by outcome for violin rendering.
+    gap_raw = trials["t_response"].to_numpy() - trials["t_react"].to_numpy()
+    rewarded = trials["rewarded"].to_numpy()
+    punished = trials["punished"].to_numpy()
+    gap_mask = (
+        np.isfinite(gap_raw) & (gap_raw > 0) & (gap_raw < 5) & (trials.response != 0)
+    )
+    gap_times = gap_raw[gap_mask]
+    gap_correct = gap_raw[gap_mask & (rewarded == 1)]
+    gap_incorrect = gap_raw[gap_mask & (punished == 1)]
+
+    # Inter-trial intervals from consecutive trial start times.
+    start_times = trials["t_start"].to_numpy()
+    start_times = start_times[np.isfinite(start_times)]
+    iti_vals = np.diff(start_times) if start_times.size > 1 else np.array([])
+    iti_vals = iti_vals[(iti_vals > 0) & (iti_vals < 30)]
+
+    # Trial-count histogram across session time (5-minute bins from first trial).
+    trial_count_bin_size_min = 5.0
+    if start_times.size:
+        elapsed_min = (start_times - start_times[0]) / 60.0
+        max_elapsed = float(np.max(elapsed_min)) if elapsed_min.size else 0.0
+        max_edge = max(trial_count_bin_size_min, max_elapsed + trial_count_bin_size_min)
+        bin_edges = np.arange(0.0, max_edge + 1e-9, trial_count_bin_size_min)
+        trial_count_vals, _ = np.histogram(elapsed_min, bins=bin_edges)
+        trial_count_x = (bin_edges[:-1] + (trial_count_bin_size_min / 2.0)).tolist()
+    else:
+        trial_count_vals = np.array([])
+        trial_count_x = []
+
     # Rolling median of wait delta (20-trial window)
     wait_delta_x, wait_delta_y = [], []
     for start in range(0, len(wait_delta) - win + 1, 5):
@@ -647,6 +677,12 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         rt_vals=rt_vals.tolist(),
         rt_roll_x=rt_roll_x,
         rt_roll_y=rt_roll_y,
+        gap_times=gap_times.tolist(),
+        gap_times_correct=gap_correct.tolist(),
+        gap_times_incorrect=gap_incorrect.tolist(),
+        iti_times=iti_vals.tolist(),
+        trial_count_x=trial_count_x,
+        trial_count_y=trial_count_vals.astype(float).tolist(),
         init_times=init_vals.tolist(),
         init_trial_nums=init_trial_nums.tolist(),
         init_roll_x=init_roll_x,

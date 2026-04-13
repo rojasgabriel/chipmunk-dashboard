@@ -5,6 +5,7 @@ from typing import Any, cast
 import os
 import time
 import logging
+import math
 from datetime import date as _date
 
 from dash import Dash, ctx, dcc, html, Input, Output, State
@@ -29,6 +30,7 @@ _AXIS_CLEAN = dict(showgrid=False, zeroline=False, tickfont=dict(color="#56606b"
 _LEGEND: dict[str, Any] = dict(visible=False)
 _PLOT_H = "280px"
 _MAX_W = "560px"  # max width per plot
+_TIMING_Y_CLIP_PCT = 95.0
 _PROFILE_PERF = os.getenv("CHIPMUNK_PROFILE", "0") == "1"
 _LOGGER = logging.getLogger(__name__)
 _THEME = dict(
@@ -100,6 +102,47 @@ def _layout(fig: go.Figure, **kw) -> None:
     # Update defaults with provided kwargs
     config.update(kw)
     fig.update_layout(**config)
+
+
+def _percentile(values: list[float], pct: float) -> float:
+    """Compute a percentile with linear interpolation."""
+    if not values:
+        return float("nan")
+    if len(values) == 1:
+        return float(values[0])
+    p = min(100.0, max(0.0, float(pct)))
+    sorted_vals = sorted(float(v) for v in values)
+    pos = (len(sorted_vals) - 1) * (p / 100.0)
+    lo = int(math.floor(pos))
+    hi = int(math.ceil(pos))
+    if lo == hi:
+        return sorted_vals[lo]
+    frac = pos - lo
+    return sorted_vals[lo] * (1.0 - frac) + sorted_vals[hi] * frac
+
+
+def _robust_y_range(
+    values: list[float],
+    pct: float = _TIMING_Y_CLIP_PCT,
+    lower_bound: float | None = None,
+    min_span: float = 0.05,
+) -> list[float] | None:
+    """Return a median-centered default y-range clipped by percentile radius."""
+    finite = [float(v) for v in values if v is not None and math.isfinite(float(v))]
+    if len(finite) < 2:
+        return None
+    med = _percentile(finite, 50.0)
+    radius = _percentile([abs(v - med) for v in finite], pct)
+    if not math.isfinite(radius) or radius <= 0:
+        radius = min_span
+
+    lo = med - radius
+    hi = med + radius
+    if lower_bound is not None:
+        lo = max(lo, float(lower_bound))
+    if hi <= lo:
+        hi = lo + min_span
+    return [float(lo), float(hi)]
 
 
 def _perf_log(label: str, start_time: float, **fields) -> None:
@@ -352,10 +395,12 @@ def create_app() -> Dash:
             ),
             # Row 1: Performance / Outcomes
             _row("frac-correct", "p-right", "chrono", "session-perf"),
-            # Row 2: Timing — per-trial lines (init, wait-delta, wait-floor, react)
-            _row("init-line", "wait-delta-line", "wait-floor-line", "react-line"),
+            # Row 2: Timing — per-trial lines (init, post-go dwell, wait-floor)
+            _row("init-line", "wait-delta-line", "wait-floor-line"),
             # Row 3: Timing — distributions for each column above
-            _row("init-hist", "wait-delta-hist", "wait-floor-hist", "react-hist"),
+            _row("init-hist", "wait-delta-hist", "wait-floor-hist"),
+            # Row 4: Gap-time + session pacing
+            _row("gap-time", "iti-dist", "trial-count-time"),
         ]
     )
 
@@ -632,8 +677,9 @@ def create_app() -> Dash:
         Output("wait-delta-hist", "figure"),
         Output("wait-floor-line", "figure"),
         Output("wait-floor-hist", "figure"),
-        Output("react-line", "figure"),
-        Output("react-hist", "figure"),
+        Output("gap-time", "figure"),
+        Output("iti-dist", "figure"),
+        Output("trial-count-time", "figure"),
         Input("subjects-recent", "value"),
         Input("subjects-older", "value"),
         Input("session-time", "value"),
@@ -655,8 +701,9 @@ def create_app() -> Dash:
             - ``session-date.date``
 
         Callback Outputs:
-            Twelve figures for outcomes, psychometric/chronometric, performance,
-            initiation, wait-delta, wait-floor, and reaction-time views.
+            Thirteen figures for outcomes, psychometric/chronometric, performance,
+            initiation, post-go center dwell, wait-floor, gap-time, and session
+            pacing views.
 
         Args:
             subjects_recent: Selected recent subject names.
@@ -667,13 +714,13 @@ def create_app() -> Dash:
                 ``None``. When set and multiple subjects are selected, each
                 additional subject resolves its session from this date.
         Returns:
-            A 12-item tuple of Plotly figures in callback output order.
+            A 13-item tuple of Plotly figures in callback output order.
 
         Side Effects:
             Reads cached session metrics and emits performance logs when enabled.
         """
         start = time.perf_counter()
-        n = 12
+        n = 13
         subjects = (subjects_recent or []) + (subjects_older or [])
 
         sessions_by_subject = {s: get_sessions(s) for s in subjects}
@@ -694,7 +741,12 @@ def create_app() -> Dash:
         fig_il, fig_ih = go.Figure(), go.Figure()
         fig_wdl, fig_wdh = go.Figure(), go.Figure()
         fig_wfl, fig_wfh = go.Figure(), go.Figure()
-        fig_rl, fig_rh = go.Figure(), go.Figure()
+        fig_gt = go.Figure()
+        fig_itid = go.Figure()
+        fig_tct = go.Figure()
+        init_y_vals: list[float] = []
+        wait_delta_y_vals: list[float] = []
+        wait_floor_y_vals: list[float] = []
 
         # Collect outcome totals for multi-subject horizontal bars
         multi_outcome_data = []
@@ -843,6 +895,8 @@ def create_app() -> Dash:
                             hovertemplate="%{y:.3f}s (roll)" + ht_subj,
                         )
                     )
+                init_y_vals.extend(sm["init_times"])
+                init_y_vals.extend(sm["init_roll_y"])
 
                 # Hist (Box if multi, Hist if single)
                 if multi:
@@ -877,7 +931,7 @@ def create_app() -> Dash:
                             line_width=1.5,
                         )
 
-            # --- Row 3: Wait Delta ---
+            # --- Row 3: Post-Go Center Dwell ---
 
             if sm["wait_delta_times"]:
                 # Line (Delta vs trial num)
@@ -907,6 +961,8 @@ def create_app() -> Dash:
                             hovertemplate="%{y:.3f}s<extra>rolling</extra>",
                         )
                     )
+                wait_delta_y_vals.extend(sm["wait_delta_times"])
+                wait_delta_y_vals.extend(sm["wait_delta_y"])
 
                 # Hist (Box if multi)
                 if multi:
@@ -969,6 +1025,8 @@ def create_app() -> Dash:
                             hovertemplate="%{y:.3f}s (roll)" + ht_subj,
                         )
                     )
+                wait_floor_y_vals.extend(sm["wait_times"])
+                wait_floor_y_vals.extend(sm["wait_roll_y"])
 
                 if multi:
                     fig_wfh.add_trace(
@@ -1001,67 +1059,136 @@ def create_app() -> Dash:
                             line_width=1.5,
                         )
 
-            # --- Row 4: Reaction Time ---
-
-            # Line (RT vs trial)
-            if sm["rt_trial_nums"]:
-                fig_rl.add_trace(
-                    go.Scattergl(
-                        x=sm["rt_trial_nums"],
-                        y=sm["rt_vals"],
-                        mode="markers",
-                        name=subj,
-                        showlegend=False,
-                        legendgroup=grp,
-                        marker=dict(color=c, size=3, opacity=0.4),
-                        hovertemplate="%{y:.3f}s" + ht_subj,
+            # --- Row 4: Gap Time by Outcome ---
+            gap_correct = sm.get("gap_times_correct", [])
+            gap_incorrect = sm.get("gap_times_incorrect", [])
+            if multi_col:
+                if gap_correct:
+                    fig_gt.add_trace(
+                        go.Violin(
+                            x=[subj] * len(gap_correct),
+                            y=gap_correct,
+                            name="Correct",
+                            legendgroup="gap-correct",
+                            showlegend=i == 0,
+                            line_color="mediumseagreen",
+                            side="negative",
+                            meanline_visible=True,
+                            points=False,
+                            scalegroup=subj,
+                        )
                     )
-                )
-                # Rolling
-                if sm["rt_roll_x"]:
-                    fig_rl.add_trace(
-                        go.Scatter(
-                            x=sm["rt_roll_x"],
-                            y=sm["rt_roll_y"],
-                            mode="lines",
-                            name=subj + " roll",
-                            showlegend=False,
-                            legendgroup=grp,
-                            line=dict(color=c, width=2),
-                            hovertemplate="%{y:.3f}s (roll)" + ht_subj,
+                if gap_incorrect:
+                    fig_gt.add_trace(
+                        go.Violin(
+                            x=[subj] * len(gap_incorrect),
+                            y=gap_incorrect,
+                            name="Incorrect",
+                            legendgroup="gap-incorrect",
+                            showlegend=i == 0,
+                            line_color="tomato",
+                            side="positive",
+                            meanline_visible=True,
+                            points=False,
+                            scalegroup=subj,
+                        )
+                    )
+            else:
+                if gap_correct:
+                    fig_gt.add_trace(
+                        go.Violin(
+                            x=["Correct"] * len(gap_correct),
+                            y=gap_correct,
+                            name="Correct",
+                            legendgroup="gap-correct",
+                            showlegend=True,
+                            line_color="mediumseagreen",
+                            meanline_visible=True,
+                            points=False,
+                        )
+                    )
+                if gap_incorrect:
+                    fig_gt.add_trace(
+                        go.Violin(
+                            x=["Incorrect"] * len(gap_incorrect),
+                            y=gap_incorrect,
+                            name="Incorrect",
+                            legendgroup="gap-incorrect",
+                            showlegend=True,
+                            line_color="tomato",
+                            meanline_visible=True,
+                            points=False,
                         )
                     )
 
-            # Histogram / Box
-            if multi:
-                fig_rh.add_trace(
-                    go.Box(
-                        y=sm["rts"],
-                        name=subj,
-                        marker_color=c,
-                        legendgroup=grp,
-                        showlegend=False,
-                        boxmean=True,
+            iti_vals = sm.get("iti_times", [])
+            if iti_vals:
+                if multi_col:
+                    fig_itid.add_trace(
+                        go.Box(
+                            y=iti_vals,
+                            name=subj,
+                            marker_color=c,
+                            legendgroup=grp,
+                            showlegend=False,
+                            boxmean=True,
+                        )
                     )
-                )
-            else:
-                fig_rh.add_trace(
-                    go.Histogram(
-                        x=sm["rts"],
-                        nbinsx=30,
-                        name=subj,
-                        marker_color=c,
-                        legendgroup=grp,
-                        showlegend=False,
-                        opacity=0.8,
+                else:
+                    fig_itid.add_trace(
+                        go.Histogram(
+                            x=iti_vals,
+                            nbinsx=30,
+                            name=subj,
+                            marker_color=c,
+                            showlegend=False,
+                            opacity=0.8,
+                        )
                     )
-                )
-                # Add Median Line
-                if sm["rts"]:
-                    med_val = np.median(sm["rts"])
-                    fig_rh.add_vline(
-                        x=med_val, line_dash="dash", line_color="black", line_width=1.5
+                    med_val = np.median(iti_vals)
+                    fig_itid.add_vline(
+                        x=med_val,
+                        line_dash="dash",
+                        line_color="black",
+                        line_width=1.5,
                     )
+
+            trial_count_x = sm.get("trial_count_x", [])
+            trial_count_y = sm.get("trial_count_y", [])
+            if trial_count_x and trial_count_y:
+                if multi_col:
+                    fig_tct.add_trace(
+                        go.Scatter(
+                            x=trial_count_x,
+                            y=trial_count_y,
+                            mode="lines+markers",
+                            name=subj,
+                            showlegend=True,
+                            legendgroup=grp,
+                            marker=dict(color=c, size=6),
+                            line=dict(color=c, width=2),
+                            hovertemplate="%{y:.0f}<extra>" + subj + "</extra>",
+                        )
+                    )
+                else:
+                    fig_tct.add_trace(
+                        go.Bar(
+                            x=trial_count_x,
+                            y=trial_count_y,
+                            name=subj,
+                            marker_color=c,
+                            showlegend=False,
+                            hovertemplate="%{y:.0f}<extra></extra>",
+                        )
+                    )
+
+        init_y_range = _robust_y_range(
+            init_y_vals, pct=_TIMING_Y_CLIP_PCT, lower_bound=0
+        )
+        wait_delta_y_range = _robust_y_range(wait_delta_y_vals, pct=_TIMING_Y_CLIP_PCT)
+        wait_floor_y_range = _robust_y_range(
+            wait_floor_y_vals, pct=_TIMING_Y_CLIP_PCT, lower_bound=0
+        )
 
         # --- Layouts ---
 
@@ -1152,21 +1279,12 @@ def create_app() -> Dash:
         fig_sp.add_hline(y=0.5, **_ref_line)  # Ref Line (Updated style)
 
         # Row 2
-
-        # Auto-scale Initiation Y-axis based on 98th percentiles (REVERTED LOGIC)
-        # Recalculate basic 98th percentile logic here if we want *some* filtering,
-        # otherwise, just leave it mostly open but maybe max(10s) floor?
-        # User asked for "normal box plots", "showing outlier points".
-        # If we show outliers, Plotly will scale to them.
-        # But if outliers are HUGE (200s), the box is tiny.
-        # User said "let's back to... showing outlier points".
-        # So we remove manual scaling logic that hides them.
-
         _layout(
             fig_il,
             title="Initiation Times",
             xaxis_title="trial number",
             yaxis_title="time (s)",
+            yaxis_range=init_y_range,
         )
 
         if multi:
@@ -1182,16 +1300,17 @@ def create_app() -> Dash:
         # Row 3
         _layout(
             fig_wdl,
-            title="Wait Delta (Actual - Min)",
+            title="Post-Go Center Dwell",
             xaxis_title="trial number",
             yaxis_title="time (s)",
+            yaxis_range=wait_delta_y_range,
         )
         if multi:
-            _layout(fig_wdh, title="Wait Delta Dist.", yaxis_title="time (s)")
+            _layout(fig_wdh, title="Post-Go Center Dwell Dist.", yaxis_title="time (s)")
         else:
             _layout(
                 fig_wdh,
-                title="Wait Delta Dist.",
+                title="Post-Go Center Dwell Dist.",
                 xaxis_title="time (s)",
                 yaxis_title="count",
             )
@@ -1200,6 +1319,7 @@ def create_app() -> Dash:
             title="Wait Floor",
             xaxis_title="trial number",
             yaxis_title="time (s)",
+            yaxis_range=wait_floor_y_range,
         )
         if multi:
             _layout(fig_wfh, title="Wait Floor Dist.", yaxis_title="time (s)")
@@ -1213,20 +1333,26 @@ def create_app() -> Dash:
 
         # Row 4
         _layout(
-            fig_rl,
-            title="Response Times",
-            xaxis_title="trial number",
+            fig_gt,
+            title="Gap time by outcome",
+            xaxis_title="subject" if multi_col else "outcome",
             yaxis_title="time (s)",
         )
-        if multi:
-            _layout(fig_rh, title="Response Time Dist.", yaxis_title="time (s)")
+        if multi_col:
+            _layout(fig_itid, title="ITIs", yaxis_title="time (s)")
         else:
             _layout(
-                fig_rh,
-                title="Response Time Dist.",
+                fig_itid,
+                title="ITIs",
                 xaxis_title="time (s)",
                 yaxis_title="count",
             )
+        _layout(
+            fig_tct,
+            title="Trial Counts",
+            xaxis_title="minutes from first trial",
+            yaxis_title="count",
+        )
 
         _perf_log("_update_single", start, subjects=len(valid_subjects), multi=multi)
         return (
@@ -1240,8 +1366,9 @@ def create_app() -> Dash:
             fig_wdh,
             fig_wfl,
             fig_wfh,
-            fig_rl,
-            fig_rh,
+            fig_gt,
+            fig_itid,
+            fig_tct,
         )
 
     # ── Multi-session plots ──────────────────────────────────────────────────

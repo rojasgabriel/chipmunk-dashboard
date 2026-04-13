@@ -249,10 +249,73 @@ class TestAppUtilities(unittest.TestCase):
         with mock.patch.object(self.appmod, "get_sessions", return_value=[]):
             figures = update_single(["subject-a"], [], None, 0, None)
 
-        self.assertEqual(len(figures), 12)
+        self.assertEqual(len(figures), 13)
         self.assertEqual(
             figures[0].layout["annotations"][0]["text"], "Select subject(s)"
         )
+
+    def test_update_single_builds_gap_time_figure(self) -> None:
+        app = self.appmod.create_app()
+        update_single = app.callbacks["_update_single"]
+
+        # Minimal trace factories so fake graph_objects supports callback execution.
+        trace_names = ("Bar", "Scatter", "Scattergl", "Box", "Histogram", "Violin")
+        for trace_name in trace_names:
+            setattr(
+                self.appmod.go,
+                trace_name,
+                lambda **kw: {"trace": "generic", "kwargs": kw},
+            )
+
+        metrics = {
+            "stims": [0.0],
+            "n_correct": [1],
+            "n_incorrect": [0],
+            "n_ew": [0],
+            "n_no_choice": [0],
+            "p_right": [0.5],
+            "median_rt": [0.2],
+            "slide_x": [],
+            "slide_y": [],
+            "ew_roll_x": [],
+            "ew_roll_y": [],
+            "init_trial_nums": [],
+            "init_times": [],
+            "init_roll_x": [],
+            "init_roll_y": [],
+            "wait_delta_times": [],
+            "wait_trial_nums": [],
+            "wait_delta_x": [],
+            "wait_delta_y": [],
+            "wait_times": [],
+            "wait_roll_x": [],
+            "wait_roll_y": [],
+            "rts": [],
+            "rt_trial_nums": [],
+            "rt_vals": [],
+            "rt_roll_x": [],
+            "rt_roll_y": [],
+            "gap_times_correct": [0.2, 0.25],
+            "gap_times_incorrect": [0.4],
+            "iti_times": [0.8, 1.1, 1.0],
+            "trial_count_x": [2.5, 7.5],
+            "trial_count_y": [20.0, 18.0],
+        }
+
+        with (
+            mock.patch.object(
+                self.appmod, "get_sessions", return_value=["20260101_010101"]
+            ),
+            mock.patch.object(self.appmod, "session_metrics", return_value=metrics),
+        ):
+            figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
+
+        self.assertEqual(len(figures), 13)
+        self.assertEqual(figures[10].layout["title"]["text"], "Gap time by outcome")
+        self.assertEqual(len(figures[10].traces), 2)
+        self.assertIn("yaxis_range", figures[4].layout)  # init-line
+        self.assertIn("yaxis_range", figures[6].layout)  # wait-delta-line
+        self.assertIn("yaxis_range", figures[8].layout)  # wait-floor-line
 
     def test_update_multi_returns_empty_figures_when_no_subjects(self) -> None:
         app = self.appmod.create_app()

@@ -222,6 +222,12 @@ def _make_session_metrics() -> dict:
         wait_delta_y=rng.uniform(0.0, 1.0, nroll).tolist(),
         wait_roll_x=roll_x,
         wait_roll_y=rng.uniform(0.5, 2.0, nroll).tolist(),
+        gap_times=rng.uniform(0.05, 0.8, n).tolist(),
+        gap_times_correct=rng.uniform(0.05, 0.5, n // 2).tolist(),
+        gap_times_incorrect=rng.uniform(0.2, 0.9, n // 2).tolist(),
+        iti_times=rng.uniform(0.5, 3.0, n).tolist(),
+        trial_count_x=[2.5, 7.5, 12.5, 17.5],
+        trial_count_y=[25.0, 20.0, 18.0, 12.0],
         slide_x=roll_x,
         slide_y=rng.uniform(0.5, 0.9, nroll).tolist(),
         ew_roll_x=roll_x,
@@ -338,6 +344,22 @@ class TestPlotlyApiSurface(unittest.TestCase):
                 marker_color="#1f77b4",
                 showlegend=False,
                 opacity=0.8,
+            )
+        )
+
+    def test_violin_trace_accepts_app_kwargs(self):
+        go.Figure().add_trace(
+            go.Violin(
+                x=["subject-a", "subject-a", "subject-a"],
+                y=[0.2, 0.25, 0.3],
+                name="Correct",
+                legendgroup="gap-correct",
+                showlegend=True,
+                line_color="mediumseagreen",
+                side="negative",
+                meanline_visible=True,
+                points=False,
+                scalegroup="subject-a",
             )
         )
 
@@ -562,6 +584,12 @@ class TestSessionMetricsWithRealLibs(unittest.TestCase):
             "rt_vals",
             "rt_roll_x",
             "rt_roll_y",
+            "gap_times",
+            "gap_times_correct",
+            "gap_times_incorrect",
+            "iti_times",
+            "trial_count_x",
+            "trial_count_y",
             "init_times",
             "init_trial_nums",
             "init_roll_x",
@@ -677,7 +705,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.addCleanup(lambda: sys.modules.pop("chipmunk_dashboard.app", None))
         self.appmod = _import_app_fake_dash_real_plotly()
 
-    def test_update_single_single_subject_returns_eleven_figures(self):
+    def test_update_single_single_subject_returns_thirteen_figures(self):
         app = self.appmod.create_app()
         update_single = app.callbacks["_update_single"]
         sm = _make_session_metrics()
@@ -689,7 +717,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         ):
             figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
 
-        self.assertEqual(len(figures), 12)
+        self.assertEqual(len(figures), 13)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
         # Single-subject outcome chart: 4 vertical bar traces (one per outcome type)
@@ -699,9 +727,22 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.assertEqual(len(figures[2].data), 1)
         # Wait-floor plot (index 8): raw markers + rolling line = 2 traces
         self.assertEqual(len(figures[8].data), 2)
+        # Timing scatter panels apply robust default y-axis clipping.
+        self.assertIsNotNone(figures[4].layout.yaxis.range)
+        self.assertIsNotNone(figures[6].layout.yaxis.range)
+        self.assertIsNotNone(figures[8].layout.yaxis.range)
         # Wait-floor-hist (index 9): single Histogram trace
         self.assertEqual(len(figures[9].data), 1)
         self.assertIsInstance(figures[9].data[0], go.Histogram)
+        # Gap-time plot (index 10): violin traces by outcome
+        self.assertGreaterEqual(len(figures[10].data), 2)
+        self.assertIsInstance(figures[10].data[0], go.Violin)
+        # ITI dist (index 11) is histogram in single-subject mode
+        self.assertEqual(len(figures[11].data), 1)
+        self.assertIsInstance(figures[11].data[0], go.Histogram)
+        # Trial-count-time (index 12) is bar in single-subject mode
+        self.assertEqual(len(figures[12].data), 1)
+        self.assertIsInstance(figures[12].data[0], go.Bar)
 
     def test_update_single_multi_subject_uses_box_and_horizontal_bars(self):
         app = self.appmod.create_app()
@@ -717,7 +758,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
                 ["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01"
             )
 
-        self.assertEqual(len(figures), 12)
+        self.assertEqual(len(figures), 13)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
         # Multi-col outcome chart: 4 horizontal bar traces
@@ -730,8 +771,13 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.assertEqual(len(figures[8].data), 4)
         # Wait-floor dist (index 9) uses Box in multi mode
         self.assertIsInstance(figures[9].data[0], go.Box)
-        # Reaction time dist (index 11) uses Box in multi mode
+        # Gap-time plot (index 10) uses split violin traces
+        self.assertGreaterEqual(len(figures[10].data), 2)
+        self.assertIsInstance(figures[10].data[0], go.Violin)
+        # ITI dist (index 11) uses Box in multi mode
         self.assertIsInstance(figures[11].data[0], go.Box)
+        # Trial-count-time (index 12) uses scatter in multi mode
+        self.assertIsInstance(figures[12].data[0], go.Scatter)
 
     def test_update_multi_with_data_returns_eight_figures(self):
         app = self.appmod.create_app()
@@ -775,7 +821,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
                 ["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01"
             )
 
-        self.assertEqual(len(figures), 12)
+        self.assertEqual(len(figures), 13)
 
     def test_update_multi_recent_and_older_subjects_are_merged(self):
         """Subjects from both checklists are combined and processed together."""
@@ -795,7 +841,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         # ses = "" which is falsy → the loop body is skipped via continue.
         with mock.patch.object(self.appmod, "get_sessions", return_value=[""]):
             figures = update_single(["subject-a"], [], None, 0, None)
-        self.assertEqual(len(figures), 12)
+        self.assertEqual(len(figures), 13)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
 
@@ -810,7 +856,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             mock.patch.object(self.appmod, "session_metrics", return_value=None),
         ):
             figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
-        self.assertEqual(len(figures), 12)
+        self.assertEqual(len(figures), 13)
 
     def test_update_multi_skips_subject_when_multisession_metrics_none(self):
         """Line 1128: `if not ms: continue` — multisession_metrics returns None."""
