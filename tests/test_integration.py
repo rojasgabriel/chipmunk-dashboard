@@ -237,8 +237,8 @@ def _make_session_metrics() -> dict:
         wait_right_x=roll_x,
         wait_right_y=rng.uniform(0.5, 2.0, nroll).tolist(),
         response_times=rng.uniform(0.05, 0.8, n).tolist(),
-        response_times_correct=rng.uniform(0.05, 0.5, n // 2).tolist(),
-        response_times_incorrect=rng.uniform(0.2, 0.9, n // 2).tolist(),
+        response_times_left=rng.uniform(0.05, 0.5, n // 2).tolist(),
+        response_times_right=rng.uniform(0.2, 0.9, n // 2).tolist(),
         iti_times=rng.uniform(0.5, 3.0, n).tolist(),
         iti_times_after_correct=rng.uniform(0.5, 3.0, n // 4).tolist(),
         iti_times_after_incorrect=rng.uniform(0.5, 3.0, n // 4).tolist(),
@@ -603,8 +603,8 @@ class TestSessionMetricsWithRealLibs(unittest.TestCase):
             "rt_roll_x",
             "rt_roll_y",
             "response_times",
-            "response_times_correct",
-            "response_times_incorrect",
+            "response_times_left",
+            "response_times_right",
             "iti_times",
             "trial_count_x",
             "trial_count_y",
@@ -773,7 +773,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         # Response-time plot (index 10): combined histogram + split hidden traces
         self.assertGreaterEqual(len(figures[10].data), 3)
         self.assertIsInstance(figures[10].data[0], go.Histogram)
-        self.assertEqual(figures[10].layout.updatemenus[0].buttons[0].label, "Outcome")
+        self.assertEqual(figures[10].layout.updatemenus[0].buttons[0].label, "Choice")
         self.assertEqual(figures[6].layout.updatemenus[0].buttons[0].label, "Choice")
         self.assertEqual(figures[8].layout.updatemenus[0].buttons[0].label, "Choice")
         self.assertEqual(figures[11].layout.updatemenus[0].buttons[0].label, "Outcome")

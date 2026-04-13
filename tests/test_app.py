@@ -310,8 +310,8 @@ class TestAppUtilities(unittest.TestCase):
             "rt_roll_x": [],
             "rt_roll_y": [],
             "response_times": [0.2, 0.25, 0.4],
-            "response_times_correct": [0.2, 0.25],
-            "response_times_incorrect": [0.4],
+            "response_times_left": [0.2, 0.25],
+            "response_times_right": [0.4],
             "iti_times": [0.8, 1.1, 1.0],
             "iti_times_after_correct": [0.8],
             "iti_times_after_incorrect": [1.1],
@@ -337,7 +337,10 @@ class TestAppUtilities(unittest.TestCase):
         self.assertIn("yaxis_range", figures[8].layout)  # wait-floor-line
         self.assertIn("updatemenus", figures[6].layout)  # dwell choice toggle
         self.assertIn("updatemenus", figures[8].layout)  # wait-floor choice toggle
-        self.assertIn("updatemenus", figures[10].layout)  # response outcome toggle
+        self.assertIn("updatemenus", figures[10].layout)  # response choice toggle
+        self.assertEqual(
+            figures[10].layout["updatemenus"][0]["buttons"][0]["label"], "Choice"
+        )
         self.assertIn("updatemenus", figures[11].layout)  # iti outcome toggle
 
     def test_update_multi_returns_empty_figures_when_no_subjects(self) -> None:

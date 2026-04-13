@@ -611,7 +611,7 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         rt_roll_x.append(int(np.mean(rt_trial_nums[start : start + win])))
         rt_roll_y.append(float(np.median(rt_vals[start : start + win])))
 
-    # Response times (movement time): response - react, split by outcome.
+    # Response times (movement time): response - react, split by choice.
     response_raw = trials["t_response"].to_numpy() - trials["t_react"].to_numpy()
     response_vals = trials["response"].to_numpy()
     rewarded = trials["rewarded"].to_numpy()
@@ -624,8 +624,8 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         & (response_vals != 0)
     )
     response_times = response_raw[response_mask]
-    response_correct = response_raw[response_mask & (rewarded == 1)]
-    response_incorrect = response_raw[response_mask & (punished == 1)]
+    response_left = response_raw[response_mask & (response_vals == -1)]
+    response_right = response_raw[response_mask & (response_vals == 1)]
 
     # Left/right choice splits for post-go center dwell and wait floor.
     wait_choice = response_vals[wait_mask]
@@ -739,8 +739,8 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         rt_roll_x=rt_roll_x,
         rt_roll_y=rt_roll_y,
         response_times=response_times.tolist(),
-        response_times_correct=response_correct.tolist(),
-        response_times_incorrect=response_incorrect.tolist(),
+        response_times_left=response_left.tolist(),
+        response_times_right=response_right.tolist(),
         iti_times=iti_vals.tolist(),
         iti_times_after_correct=iti_after_correct,
         iti_times_after_incorrect=iti_after_incorrect,

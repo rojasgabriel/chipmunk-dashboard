@@ -1361,8 +1361,8 @@ def create_app() -> Dash:
 
             # --- Row 4: Response Time ---
             response_times = sm.get("response_times", [])
-            response_correct = sm.get("response_times_correct", [])
-            response_incorrect = sm.get("response_times_incorrect", [])
+            response_left = sm.get("response_times_left", [])
+            response_right = sm.get("response_times_right", [])
             if multi_col:
                 if response_times:
                     fig_rt.add_trace(
@@ -1379,33 +1379,33 @@ def create_app() -> Dash:
                     )
                     rt_combined_idx.append(rt_trace_count)
                     rt_trace_count += 1
-                if response_correct:
+                if response_left:
                     fig_rt.add_trace(
                         go.Box(
-                            x=[subj] * len(response_correct),
-                            y=response_correct,
-                            name="Correct",
-                            legendgroup="rt-correct",
+                            x=[subj] * len(response_left),
+                            y=response_left,
+                            name="Left",
+                            legendgroup="rt-left",
                             showlegend=i == 0,
-                            marker_color="mediumseagreen",
+                            marker_color="royalblue",
                             boxmean=True,
-                            offsetgroup="correct",
+                            offsetgroup="left",
                             visible=False,
                         )
                     )
                     rt_split_idx.append(rt_trace_count)
                     rt_trace_count += 1
-                if response_incorrect:
+                if response_right:
                     fig_rt.add_trace(
                         go.Box(
-                            x=[subj] * len(response_incorrect),
-                            y=response_incorrect,
-                            name="Incorrect",
-                            legendgroup="rt-incorrect",
+                            x=[subj] * len(response_right),
+                            y=response_right,
+                            name="Right",
+                            legendgroup="rt-right",
                             showlegend=i == 0,
-                            marker_color="tomato",
+                            marker_color="darkorange",
                             boxmean=True,
-                            offsetgroup="incorrect",
+                            offsetgroup="right",
                             visible=False,
                         )
                     )
@@ -1417,7 +1417,7 @@ def create_app() -> Dash:
                         go.Histogram(
                             x=response_times,
                             nbinsx=30,
-                            name="All outcomes",
+                            name="All choices",
                             marker_color=c,
                             showlegend=False,
                             opacity=0.8,
@@ -1426,13 +1426,13 @@ def create_app() -> Dash:
                     )
                     rt_combined_idx.append(rt_trace_count)
                     rt_trace_count += 1
-                if response_correct:
+                if response_left:
                     fig_rt.add_trace(
                         go.Histogram(
-                            x=response_correct,
+                            x=response_left,
                             nbinsx=30,
-                            name="Correct",
-                            marker_color="mediumseagreen",
+                            name="Left",
+                            marker_color="royalblue",
                             showlegend=True,
                             opacity=0.65,
                             visible=False,
@@ -1440,13 +1440,13 @@ def create_app() -> Dash:
                     )
                     rt_split_idx.append(rt_trace_count)
                     rt_trace_count += 1
-                if response_incorrect:
+                if response_right:
                     fig_rt.add_trace(
                         go.Histogram(
-                            x=response_incorrect,
+                            x=response_right,
                             nbinsx=30,
-                            name="Incorrect",
-                            marker_color="tomato",
+                            name="Right",
+                            marker_color="darkorange",
                             showlegend=True,
                             opacity=0.65,
                             visible=False,
@@ -1854,7 +1854,7 @@ def create_app() -> Dash:
                         showactive=True,
                         buttons=[
                             dict(
-                                label="Outcome",
+                                label="Choice",
                                 method="restyle",
                                 args=[{"visible": on_visible}],
                                 args2=[{"visible": off_visible}],
