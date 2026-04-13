@@ -617,6 +617,12 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         wait_delta_x.append(int(np.mean(wait_trial_nums[start : start + win])))
         wait_delta_y.append(float(np.median(wait_delta[start : start + win])))
 
+    # Rolling median of wait actual (20-trial window)
+    wait_roll_x, wait_roll_y = [], []
+    for start in range(0, len(wait_actual) - win + 1, 5):
+        wait_roll_x.append(int(np.mean(wait_trial_nums[start : start + win])))
+        wait_roll_y.append(float(np.median(wait_actual[start : start + win])))
+
     # Rolling EW Rate (20-trial window)
     ew_roll_x, ew_roll_y = [], []
     ew_raw = trials.early_withdrawal.to_numpy()  # 0 or 1
@@ -651,6 +657,8 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         wait_trial_nums=wait_trial_nums.tolist(),
         wait_delta_x=wait_delta_x,
         wait_delta_y=wait_delta_y,
+        wait_roll_x=wait_roll_x,
+        wait_roll_y=wait_roll_y,
         slide_x=slide_x,  # rolling performance x
         slide_y=slide_y,  # rolling performance y
         ew_roll_x=ew_roll_x,  # rolling EW x

@@ -354,8 +354,8 @@ def create_app() -> Dash:
             _row("frac-correct", "p-right", "chrono", "session-perf"),
             # Row 2: Initiation
             _row("init-line", "init-hist"),
-            # Row 3: Wait (Delta)
-            _row("wait-delta-line", "wait-delta-hist"),
+            # Row 3: Wait (Delta + Floor)
+            _row("wait-delta-line", "wait-delta-hist", "wait-floor-line"),
             # Row 4: Reaction
             _row("react-line", "react-hist"),
         ]
@@ -632,6 +632,7 @@ def create_app() -> Dash:
         Output("init-hist", "figure"),
         Output("wait-delta-line", "figure"),
         Output("wait-delta-hist", "figure"),
+        Output("wait-floor-line", "figure"),
         Output("react-line", "figure"),
         Output("react-hist", "figure"),
         Input("subjects-recent", "value"),
@@ -655,8 +656,8 @@ def create_app() -> Dash:
             - ``session-date.date``
 
         Callback Outputs:
-            Ten figures for outcomes, psychometric/chronometric, performance,
-            initiation, wait-delta, and reaction-time views.
+            Eleven figures for outcomes, psychometric/chronometric, performance,
+            initiation, wait-delta, wait-floor, and reaction-time views.
 
         Args:
             subjects_recent: Selected recent subject names.
@@ -667,13 +668,13 @@ def create_app() -> Dash:
                 ``None``. When set and multiple subjects are selected, each
                 additional subject resolves its session from this date.
         Returns:
-            A 10-item tuple of Plotly figures in callback output order.
+            An 11-item tuple of Plotly figures in callback output order.
 
         Side Effects:
             Reads cached session metrics and emits performance logs when enabled.
         """
         start = time.perf_counter()
-        n = 10
+        n = 11
         subjects = (subjects_recent or []) + (subjects_older or [])
 
         sessions_by_subject = {s: get_sessions(s) for s in subjects}
@@ -693,6 +694,7 @@ def create_app() -> Dash:
         fig_pr, fig_ch, fig_sp = go.Figure(), go.Figure(), go.Figure()
         fig_il, fig_ih = go.Figure(), go.Figure()
         fig_wdl, fig_wdh = go.Figure(), go.Figure()
+        fig_wfl = go.Figure()
         fig_rl, fig_rh = go.Figure(), go.Figure()
 
         # Collect outcome totals for multi-subject horizontal bars
@@ -940,6 +942,35 @@ def create_app() -> Dash:
                             line_width=1.5,
                         )
 
+            # --- Row 3 (cont.): Wait Floor ---
+
+            if sm["wait_times"] and sm["wait_trial_nums"]:
+                fig_wfl.add_trace(
+                    go.Scattergl(
+                        x=sm["wait_trial_nums"],
+                        y=sm["wait_times"],
+                        mode="markers",
+                        name=subj,
+                        showlegend=False,
+                        legendgroup=grp,
+                        marker=dict(color=c, size=3, opacity=0.4),
+                        hovertemplate="%{y:.3f}s" + ht_subj,
+                    )
+                )
+                if sm["wait_roll_x"] and sm["wait_roll_y"]:
+                    fig_wfl.add_trace(
+                        go.Scatter(
+                            x=sm["wait_roll_x"],
+                            y=sm["wait_roll_y"],
+                            mode="lines",
+                            name=subj + " roll",
+                            showlegend=False,
+                            legendgroup=grp,
+                            line=dict(color=c, width=2),
+                            hovertemplate="%{y:.3f}s (roll)" + ht_subj,
+                        )
+                    )
+
             # --- Row 4: Reaction Time ---
 
             # Line (RT vs trial)
@@ -1134,6 +1165,12 @@ def create_app() -> Dash:
                 xaxis_title="time (s)",
                 yaxis_title="count",
             )
+        _layout(
+            fig_wfl,
+            title="Wait Floor",
+            xaxis_title="trial number",
+            yaxis_title="time (s)",
+        )
 
         # Row 4
         _layout(
@@ -1162,6 +1199,7 @@ def create_app() -> Dash:
             fig_ih,
             fig_wdl,
             fig_wdh,
+            fig_wfl,
             fig_rl,
             fig_rh,
         )
