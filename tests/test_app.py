@@ -103,6 +103,28 @@ def _import_app_module():
     return module
 
 
+def _walk_fake_tree(node):
+    if isinstance(node, dict):
+        yield node
+        for val in node.values():
+            yield from _walk_fake_tree(val)
+        return
+    if isinstance(node, (list, tuple)):
+        for item in node:
+            yield from _walk_fake_tree(item)
+
+
+def _find_fake_component(node, component_name: str, component_id: str | None = None):
+    for item in _walk_fake_tree(node):
+        if item.get("component") != component_name:
+            continue
+        if component_id is None:
+            return item
+        if item.get("kwargs", {}).get("id") == component_id:
+            return item
+    return None
+
+
 class TestAppUtilities(unittest.TestCase):
     def setUp(self) -> None:
         self.addCleanup(lambda: sys.modules.pop("chipmunk_dashboard.app", None))
@@ -120,6 +142,17 @@ class TestAppUtilities(unittest.TestCase):
         self.assertEqual(fig.layout["title"]["text"], "Title")
         self.assertEqual(fig.layout["xaxis_title"], "x-axis")
         self.assertEqual(fig.layout["font"]["color"], self.appmod._THEME["text"])
+
+    def test_create_app_includes_single_session_tabs(self) -> None:
+        app = self.appmod.create_app()
+        tabs = _find_fake_component(app.layout, "Tabs", "single-session-tabs")
+        self.assertIsNotNone(tabs)
+        children = tabs["kwargs"]["children"]
+        self.assertEqual(len(children), 2)
+        labels = [child["kwargs"]["label"] for child in children]
+        values = [child["kwargs"]["value"] for child in children]
+        self.assertEqual(labels, ["Overview", "Timing"])
+        self.assertEqual(values, ["single-overview", "single-timing"])
 
     def test_perf_log_skips_when_disabled(self) -> None:
         with (
@@ -249,7 +282,7 @@ class TestAppUtilities(unittest.TestCase):
         with mock.patch.object(self.appmod, "get_sessions", return_value=[]):
             figures = update_single(["subject-a"], [], None, 0, None)
 
-        self.assertEqual(len(figures), 13)
+        self.assertEqual(len(figures), 14)
         self.assertEqual(
             figures[0].layout["annotations"][0]["text"], "Select subject(s)"
         )
@@ -312,11 +345,23 @@ class TestAppUtilities(unittest.TestCase):
             "response_times": [0.2, 0.25, 0.4],
             "response_times_left": [0.2, 0.25],
             "response_times_right": [0.4],
+            "session_settings_lines": ["trials: 42", "rewarded modality: audio"],
+            "water_side_totals": [2, 3, 5],
             "iti_times": [0.8, 1.1, 1.0],
             "iti_times_after_correct": [0.8],
             "iti_times_after_incorrect": [1.1],
             "iti_times_after_ew": [1.0],
             "iti_times_after_no_choice": [0.9],
+            "iti_roll_x": [13, 18],
+            "iti_roll_y": [0.95, 1.02],
+            "iti_roll_correct_x": [13],
+            "iti_roll_correct_y": [0.9],
+            "iti_roll_incorrect_x": [18],
+            "iti_roll_incorrect_y": [1.1],
+            "iti_roll_ew_x": [23],
+            "iti_roll_ew_y": [1.0],
+            "iti_roll_no_choice_x": [28],
+            "iti_roll_no_choice_y": [0.85],
             "trial_count_x": [2.5, 7.5],
             "trial_count_y": [20.0, 18.0],
         }
@@ -329,8 +374,8 @@ class TestAppUtilities(unittest.TestCase):
         ):
             figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
 
-        self.assertEqual(len(figures), 13)
-        self.assertEqual(figures[10].layout["title"]["text"], "Response Time")
+        self.assertEqual(len(figures), 14)
+        self.assertEqual(figures[10].layout["title"]["text"], "Response Time KDE")
         self.assertEqual(len(figures[10].traces), 3)
         self.assertIn("yaxis_range", figures[4].layout)  # init-line
         self.assertIn("yaxis_range", figures[6].layout)  # wait-delta-line
@@ -341,7 +386,47 @@ class TestAppUtilities(unittest.TestCase):
         self.assertEqual(
             figures[10].layout["updatemenus"][0]["buttons"][0]["label"], "Choice"
         )
+        self.assertEqual(figures[10].layout["updatemenus"][0]["active"], -1)
         self.assertIn("updatemenus", figures[11].layout)  # iti outcome toggle
+        self.assertIn("updatemenus", figures[13].layout)  # iti rolling outcome toggle
+        self.assertEqual(
+            figures[13].layout["updatemenus"][0]["buttons"][0]["label"], "Outcome"
+        )
+
+    def test_update_overview_boxes_formats_session_metadata(self) -> None:
+        app = self.appmod.create_app()
+        update_overview_boxes = app.callbacks["_update_overview_boxes"]
+
+        with (
+            mock.patch.object(
+                self.appmod, "get_sessions", return_value=["20260101_010101"]
+            ),
+            mock.patch.object(
+                self.appmod,
+                "session_metrics",
+                return_value={
+                    "session_settings_lines": [
+                        "trials: 80",
+                        "rewarded modality: audio",
+                    ],
+                    "water_side_totals": [4, 5, 9],
+                },
+            ),
+        ):
+            settings, water = update_overview_boxes(
+                ["subject-a"], [], "20260101_010101", 0, None
+            )
+
+        self.assertIn("subject-a (20260101_010101)", settings)
+        self.assertIn("rewarded modality: audio", settings)
+        self.assertEqual(water, "subject-a: left=4, right=5, total=9")
+
+    def test_update_overview_boxes_returns_placeholders_without_subjects(self) -> None:
+        app = self.appmod.create_app()
+        update_overview_boxes = app.callbacks["_update_overview_boxes"]
+        settings, water = update_overview_boxes([], [], None, 0, None)
+        self.assertIn("Select subject(s)", settings)
+        self.assertIn("Select subject(s)", water)
 
     def test_update_multi_returns_empty_figures_when_no_subjects(self) -> None:
         app = self.appmod.create_app()

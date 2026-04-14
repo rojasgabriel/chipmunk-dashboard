@@ -1,6 +1,5 @@
 """Dash application — layout and callbacks."""
 
-import numpy as np
 from typing import Any, cast
 import os
 import time
@@ -28,7 +27,22 @@ _CLEAN: dict[str, Any] = dict(
 )
 _AXIS_CLEAN = dict(showgrid=False, zeroline=False, tickfont=dict(color="#56606b"))
 _LEGEND: dict[str, Any] = dict(visible=False)
-_PLOT_H = "280px"
+_PLOT_H_DEFAULT = "280px"
+_PLOT_H_BY_ID: dict[str, str] = {
+    # line/scatter-heavy panels benefit from extra vertical space
+    "session-perf": "300px",
+    "init-line": "300px",
+    "wait-delta-line": "300px",
+    "wait-floor-line": "300px",
+    "iti-rolling": "320px",
+    # compact distribution / count panels
+    "init-hist": "250px",
+    "wait-delta-hist": "250px",
+    "wait-floor-hist": "250px",
+    "response-time": "250px",
+    "iti-dist": "250px",
+    "trial-count-time": "250px",
+}
 _MAX_W = "560px"  # max width per plot
 _TIMING_Y_CLIP_PCT = 95.0
 _PROFILE_PERF = os.getenv("CHIPMUNK_PROFILE", "0") == "1"
@@ -178,10 +192,12 @@ def create_app() -> Dash:
     """
     subjects = get_all_subjects()
     recent_subjects = get_subjects_with_recent_sessions()
+    assets_dir = os.path.join(os.path.dirname(__file__), "assets")
     app = Dash(
         __name__,
         title="chipmunk dashboard",
         suppress_callback_exceptions=True,
+        assets_folder=assets_dir,
         external_stylesheets=[
             "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
         ],
@@ -221,6 +237,10 @@ def create_app() -> Dash:
         return recent_opts, older_opts
 
     # -- helpers --------------------------------------------------------------
+    def _plot_height(gid: str) -> str:
+        """Return per-panel graph height with a sensible default."""
+        return _PLOT_H_BY_ID.get(gid, _PLOT_H_DEFAULT)
+
     def _graph(gid: str) -> dcc.Graph:
         """Create a standardized graph component used in dashboard rows.
 
@@ -232,7 +252,8 @@ def create_app() -> Dash:
         """
         return dcc.Graph(
             id=gid,
-            style={"height": _PLOT_H, "width": "100%"},
+            className="dashboard-graph",
+            style={"height": _plot_height(gid), "width": "100%"},
             config={"displayModeBar": False},
         )
 
@@ -247,12 +268,83 @@ def create_app() -> Dash:
         """
         return html.Div(
             [_graph(i) for i in ids],
+            className="dashboard-row",
             style={
                 "display": "grid",
                 "gridTemplateColumns": f"repeat({len(ids)}, 1fr)",
                 "gap": "12px",
                 "marginBottom": "12px",
             },
+        )
+
+    def _apply_split_toggle(
+        fig: go.Figure,
+        combined_idx: list[int],
+        split_idx: list[int],
+        trace_count: int,
+        label: str,
+    ) -> None:
+        """Apply a consistent single-button aggregate/split toggle."""
+        if not combined_idx or not split_idx:
+            return
+        off_visible = [idx in combined_idx for idx in range(trace_count)]
+        on_visible = [idx in split_idx for idx in range(trace_count)]
+        fig.update_layout(
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    active=-1,
+                    direction="left",
+                    x=1.0,
+                    y=1.18,
+                    xanchor="right",
+                    yanchor="top",
+                    showactive=True,
+                    bgcolor=_THEME["card"],
+                    bordercolor=_THEME["border"],
+                    font=dict(size=11, color=_THEME["text"]),
+                    buttons=[
+                        dict(
+                            label=label,
+                            method="restyle",
+                            args=[{"visible": on_visible}],
+                            args2=[{"visible": off_visible}],
+                        )
+                    ],
+                )
+            ]
+        )
+
+    def _add_kde_trace(
+        fig: go.Figure,
+        values: list[float],
+        *,
+        name: str,
+        color: str,
+        legendgroup: str,
+        showlegend: bool,
+        visible: bool,
+        hover_label: str,
+    ) -> None:
+        """Render a KDE-style distribution using a violin trace."""
+        if not values:
+            return
+        fig.add_trace(
+            go.Violin(
+                x=values,
+                orientation="h",
+                name=name,
+                line_color=color,
+                fillcolor=color,
+                opacity=0.35,
+                legendgroup=legendgroup,
+                showlegend=showlegend,
+                points=False,
+                box_visible=False,
+                meanline_visible=True,
+                hovertemplate="%{x:.3f}s<extra>" + hover_label + "</extra>",
+                visible=visible,
+            )
         )
 
     # -- sidebar --------------------------------------------------------------
@@ -310,8 +402,8 @@ def create_app() -> Dash:
                         labelStyle={"fontSize": "16px", "cursor": "pointer"},
                     ),
                 ],
+                className="subjects-list",
                 style={
-                    "height": "40vh",
                     "overflowY": "auto",
                     "border": "1px solid #ccc",
                     "borderRadius": "4px",
@@ -375,32 +467,80 @@ def create_app() -> Dash:
                 marks={i: str(i) for i in [1, 5, 10, 15, 20, 25, 30]},
             ),
         ],
+        className="dashboard-sidebar",
         style={
-            "width": "240px",
             "padding": "16px",
-            "borderRight": f"1px solid {_THEME['border']}",
             "background": _THEME["panel"],
-            "flexShrink": 0,
             "display": "flex",
             "flexDirection": "column",
         },
     )
 
     # -- content sections -----------------------------------------------------
+    single_overview = html.Div(
+        [
+            _row("frac-correct", "p-right", "chrono", "session-perf"),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.H4("Session Settings", style={"margin": "0 0 8px"}),
+                            html.Pre(
+                                "Select subject(s) to show session settings.",
+                                id="session-settings-box",
+                                style={"margin": 0, "whiteSpace": "pre-wrap"},
+                            ),
+                        ],
+                        className="overview-summary-card",
+                    ),
+                    html.Div(
+                        [
+                            html.H4(
+                                "Cumulative Rewarded Water (by side)",
+                                style={"margin": "0 0 8px"},
+                            ),
+                            html.Pre(
+                                "Select subject(s) to show cumulative rewarded water.",
+                                id="water-side-box",
+                                style={"margin": 0, "whiteSpace": "pre-wrap"},
+                            ),
+                        ],
+                        className="overview-summary-card",
+                    ),
+                ],
+                className="overview-summary-grid",
+            ),
+        ],
+        className="single-tab-pane",
+    )
+    single_timing = html.Div(
+        [
+            _row("init-line", "init-hist", "wait-delta-line", "wait-delta-hist"),
+            _row("wait-floor-line", "wait-floor-hist", "iti-rolling", "iti-dist"),
+            _row("response-time", "trial-count-time"),
+        ],
+        className="single-tab-pane",
+    )
     single_section = html.Div(
         [
             html.H3(
                 "Single Session",
                 style={"margin": "24px 0 12px", "borderBottom": "1px solid #ddd"},
             ),
-            # Row 1: Performance / Outcomes
-            _row("frac-correct", "p-right", "chrono", "session-perf"),
-            # Row 2: Timing — per-trial lines (init, post-go dwell, wait-floor)
-            _row("init-line", "wait-delta-line", "wait-floor-line"),
-            # Row 3: Timing — distributions for each column above
-            _row("init-hist", "wait-delta-hist", "wait-floor-hist"),
-            # Row 4: Response-time + session pacing
-            _row("response-time", "iti-dist", "trial-count-time"),
+            dcc.Tabs(
+                id="single-session-tabs",
+                value="single-overview",
+                children=[
+                    dcc.Tab(
+                        label="Overview",
+                        value="single-overview",
+                        children=single_overview,
+                    ),
+                    dcc.Tab(
+                        label="Timing", value="single-timing", children=single_timing
+                    ),
+                ],
+            ),
         ]
     )
 
@@ -417,12 +557,12 @@ def create_app() -> Dash:
 
     main_area = html.Div(
         [single_section, multi_section],
+        className="dashboard-main",
         style={
             "flex": 1,
             "display": "flex",
             "flexDirection": "column",
             "overflowY": "auto",
-            "padding": "0 20px 40px",
             "background": _THEME["bg"],
         },
     )
@@ -440,20 +580,15 @@ def create_app() -> Dash:
             ),
             html.Div(
                 [sidebar, main_area],
-                style={
-                    "display": "flex",
-                    "height": "calc(100vh - 56px)",
-                    "overflow": "hidden",
-                },
+                className="dashboard-shell",
             ),
         ],
+        className="dashboard-root",
         style={
             "fontFamily": "IBM Plex Sans, sans-serif",
             "padding": "12px",
             "background": _THEME["bg"],
             "color": _THEME["text"],
-            "height": "100vh",
-            "overflow": "hidden",
         },
     )
 
@@ -680,6 +815,7 @@ def create_app() -> Dash:
         Output("response-time", "figure"),
         Output("iti-dist", "figure"),
         Output("trial-count-time", "figure"),
+        Output("iti-rolling", "figure"),
         Input("subjects-recent", "value"),
         Input("subjects-older", "value"),
         Input("session-time", "value"),
@@ -701,9 +837,9 @@ def create_app() -> Dash:
             - ``session-date.date``
 
         Callback Outputs:
-            Thirteen figures for outcomes, psychometric/chronometric, performance,
-            initiation, post-go center dwell, wait-floor, response-time, and session
-            pacing views.
+            Fourteen figures for outcomes, psychometric/chronometric, performance,
+            initiation, post-go center dwell, wait-floor, response-time, session
+            pacing, and ITI rolling-trend views.
 
         Args:
             subjects_recent: Selected recent subject names.
@@ -714,13 +850,13 @@ def create_app() -> Dash:
                 ``None``. When set and multiple subjects are selected, each
                 additional subject resolves its session from this date.
         Returns:
-            A 13-item tuple of Plotly figures in callback output order.
+            A 14-item tuple of Plotly figures in callback output order.
 
         Side Effects:
             Reads cached session metrics and emits performance logs when enabled.
         """
         start = time.perf_counter()
-        n = 13
+        n = 14
         subjects = (subjects_recent or []) + (subjects_older or [])
 
         sessions_by_subject = {s: get_sessions(s) for s in subjects}
@@ -744,6 +880,7 @@ def create_app() -> Dash:
         fig_rt = go.Figure()
         fig_itid = go.Figure()
         fig_tct = go.Figure()
+        fig_itir = go.Figure()
         init_y_vals: list[float] = []
         wait_delta_y_vals: list[float] = []
         wait_floor_y_vals: list[float] = []
@@ -762,6 +899,9 @@ def create_app() -> Dash:
         wfl_trace_count = 0
         wfh_trace_count = 0
         itid_trace_count = 0
+        itir_combined_idx: list[int] = []
+        itir_split_idx: list[int] = []
+        itir_trace_count = 0
         rt_combined_idx: list[int] = []
         rt_split_idx: list[int] = []
         rt_trace_count = 0
@@ -929,25 +1069,16 @@ def create_app() -> Dash:
                         )
                     )
                 else:
-                    fig_ih.add_trace(
-                        go.Histogram(
-                            x=sm["init_times"],
-                            nbinsx=30,
-                            name=subj,
-                            marker_color=c,
-                            showlegend=False,
-                            opacity=0.8,
-                        )
+                    _add_kde_trace(
+                        fig_ih,
+                        sm["init_times"],
+                        name=subj,
+                        color=c,
+                        legendgroup=grp,
+                        showlegend=False,
+                        visible=True,
+                        hover_label=subj,
                     )
-                    # Add Median Line
-                    if sm["init_times"]:
-                        med_val = np.median(sm["init_times"])
-                        fig_ih.add_vline(
-                            x=med_val,
-                            line_dash="dash",
-                            line_color="black",
-                            line_width=1.5,
-                        )
 
             # --- Row 3: Post-Go Center Dwell ---
 
@@ -1106,56 +1237,44 @@ def create_app() -> Dash:
                         wdh_split_idx.append(wdh_trace_count)
                         wdh_trace_count += 1
                 else:
-                    fig_wdh.add_trace(
-                        go.Histogram(
-                            x=sm["wait_delta_times"],
-                            nbinsx=30,
-                            name=subj,
-                            marker_color=c,
-                            showlegend=False,
-                            opacity=0.8,
-                            visible=True,
-                        )
+                    _add_kde_trace(
+                        fig_wdh,
+                        sm["wait_delta_times"],
+                        name=subj,
+                        color=c,
+                        legendgroup=grp,
+                        showlegend=False,
+                        visible=True,
+                        hover_label=subj,
                     )
                     wdh_combined_idx.append(wdh_trace_count)
                     wdh_trace_count += 1
                     if left_delta_times:
-                        fig_wdh.add_trace(
-                            go.Histogram(
-                                x=left_delta_times,
-                                nbinsx=30,
-                                name="Left",
-                                marker_color="royalblue",
-                                showlegend=True,
-                                opacity=0.65,
-                                visible=False,
-                            )
+                        _add_kde_trace(
+                            fig_wdh,
+                            left_delta_times,
+                            name="Left",
+                            color="royalblue",
+                            legendgroup="choice-left",
+                            showlegend=True,
+                            visible=False,
+                            hover_label="left",
                         )
                         wdh_split_idx.append(wdh_trace_count)
                         wdh_trace_count += 1
                     if right_delta_times:
-                        fig_wdh.add_trace(
-                            go.Histogram(
-                                x=right_delta_times,
-                                nbinsx=30,
-                                name="Right",
-                                marker_color="darkorange",
-                                showlegend=True,
-                                opacity=0.65,
-                                visible=False,
-                            )
+                        _add_kde_trace(
+                            fig_wdh,
+                            right_delta_times,
+                            name="Right",
+                            color="darkorange",
+                            legendgroup="choice-right",
+                            showlegend=True,
+                            visible=False,
+                            hover_label="right",
                         )
                         wdh_split_idx.append(wdh_trace_count)
                         wdh_trace_count += 1
-                    # Add Median Line
-                    if sm["wait_delta_times"]:
-                        med_val = np.median(sm["wait_delta_times"])
-                        fig_wdh.add_vline(
-                            x=med_val,
-                            line_dash="dash",
-                            line_color="black",
-                            line_width=1.5,
-                        )
 
             # --- Row 3 (cont.): Wait Floor ---
 
@@ -1309,55 +1428,44 @@ def create_app() -> Dash:
                         wfh_split_idx.append(wfh_trace_count)
                         wfh_trace_count += 1
                 else:
-                    fig_wfh.add_trace(
-                        go.Histogram(
-                            x=sm["wait_times"],
-                            nbinsx=30,
-                            name=subj,
-                            marker_color=c,
-                            showlegend=False,
-                            opacity=0.8,
-                            visible=True,
-                        )
+                    _add_kde_trace(
+                        fig_wfh,
+                        sm["wait_times"],
+                        name=subj,
+                        color=c,
+                        legendgroup=grp,
+                        showlegend=False,
+                        visible=True,
+                        hover_label=subj,
                     )
                     wfh_combined_idx.append(wfh_trace_count)
                     wfh_trace_count += 1
                     if wait_left_times:
-                        fig_wfh.add_trace(
-                            go.Histogram(
-                                x=wait_left_times,
-                                nbinsx=30,
-                                name="Left",
-                                marker_color="royalblue",
-                                showlegend=True,
-                                opacity=0.65,
-                                visible=False,
-                            )
+                        _add_kde_trace(
+                            fig_wfh,
+                            wait_left_times,
+                            name="Left",
+                            color="royalblue",
+                            legendgroup="choice-left",
+                            showlegend=True,
+                            visible=False,
+                            hover_label="left",
                         )
                         wfh_split_idx.append(wfh_trace_count)
                         wfh_trace_count += 1
                     if wait_right_times:
-                        fig_wfh.add_trace(
-                            go.Histogram(
-                                x=wait_right_times,
-                                nbinsx=30,
-                                name="Right",
-                                marker_color="darkorange",
-                                showlegend=True,
-                                opacity=0.65,
-                                visible=False,
-                            )
+                        _add_kde_trace(
+                            fig_wfh,
+                            wait_right_times,
+                            name="Right",
+                            color="darkorange",
+                            legendgroup="choice-right",
+                            showlegend=True,
+                            visible=False,
+                            hover_label="right",
                         )
                         wfh_split_idx.append(wfh_trace_count)
                         wfh_trace_count += 1
-                    if sm["wait_times"]:
-                        med_val = np.median(sm["wait_times"])
-                        fig_wfh.add_vline(
-                            x=med_val,
-                            line_dash="dash",
-                            line_color="black",
-                            line_width=1.5,
-                        )
 
             # --- Row 4: Response Time ---
             response_times = sm.get("response_times", [])
@@ -1413,44 +1521,41 @@ def create_app() -> Dash:
                     rt_trace_count += 1
             else:
                 if response_times:
-                    fig_rt.add_trace(
-                        go.Histogram(
-                            x=response_times,
-                            nbinsx=30,
-                            name="All choices",
-                            marker_color=c,
-                            showlegend=False,
-                            opacity=0.8,
-                            visible=True,
-                        )
+                    _add_kde_trace(
+                        fig_rt,
+                        response_times,
+                        name="All choices",
+                        color=c,
+                        legendgroup=grp,
+                        showlegend=False,
+                        visible=True,
+                        hover_label="all choices",
                     )
                     rt_combined_idx.append(rt_trace_count)
                     rt_trace_count += 1
                 if response_left:
-                    fig_rt.add_trace(
-                        go.Histogram(
-                            x=response_left,
-                            nbinsx=30,
-                            name="Left",
-                            marker_color="royalblue",
-                            showlegend=True,
-                            opacity=0.65,
-                            visible=False,
-                        )
+                    _add_kde_trace(
+                        fig_rt,
+                        response_left,
+                        name="Left",
+                        color="royalblue",
+                        legendgroup="rt-left",
+                        showlegend=True,
+                        visible=False,
+                        hover_label="left",
                     )
                     rt_split_idx.append(rt_trace_count)
                     rt_trace_count += 1
                 if response_right:
-                    fig_rt.add_trace(
-                        go.Histogram(
-                            x=response_right,
-                            nbinsx=30,
-                            name="Right",
-                            marker_color="darkorange",
-                            showlegend=True,
-                            opacity=0.65,
-                            visible=False,
-                        )
+                    _add_kde_trace(
+                        fig_rt,
+                        response_right,
+                        name="Right",
+                        color="darkorange",
+                        legendgroup="rt-right",
+                        showlegend=True,
+                        visible=False,
+                        hover_label="right",
                     )
                     rt_split_idx.append(rt_trace_count)
                     rt_trace_count += 1
@@ -1513,16 +1618,15 @@ def create_app() -> Dash:
                             itid_split_idx.append(itid_trace_count)
                             itid_trace_count += 1
                 else:
-                    fig_itid.add_trace(
-                        go.Histogram(
-                            x=iti_vals,
-                            nbinsx=30,
-                            name=subj,
-                            marker_color=c,
-                            showlegend=False,
-                            opacity=0.8,
-                            visible=True,
-                        )
+                    _add_kde_trace(
+                        fig_itid,
+                        iti_vals,
+                        name=subj,
+                        color=c,
+                        legendgroup=grp,
+                        showlegend=False,
+                        visible=True,
+                        hover_label=subj,
                     )
                     itid_combined_idx.append(itid_trace_count)
                     itid_trace_count += 1
@@ -1533,26 +1637,18 @@ def create_app() -> Dash:
                         ("After No Choice", iti_after_no_choice, "#6b7280"),
                     ]:
                         if vals:
-                            fig_itid.add_trace(
-                                go.Histogram(
-                                    x=vals,
-                                    nbinsx=30,
-                                    name=label,
-                                    marker_color=color,
-                                    showlegend=True,
-                                    opacity=0.65,
-                                    visible=False,
-                                )
+                            _add_kde_trace(
+                                fig_itid,
+                                vals,
+                                name=label,
+                                color=color,
+                                legendgroup=label.lower().replace(" ", "-"),
+                                showlegend=True,
+                                visible=False,
+                                hover_label=label.lower(),
                             )
                             itid_split_idx.append(itid_trace_count)
                             itid_trace_count += 1
-                    med_val = np.median(iti_vals)
-                    fig_itid.add_vline(
-                        x=med_val,
-                        line_dash="dash",
-                        line_color="black",
-                        line_width=1.5,
-                    )
 
             trial_count_x = sm.get("trial_count_x", [])
             trial_count_y = sm.get("trial_count_y", [])
@@ -1582,6 +1678,85 @@ def create_app() -> Dash:
                             hovertemplate="%{y:.0f}<extra></extra>",
                         )
                     )
+
+            # --- Row 5: ITI rolling trend (25-trial median) ---
+            iti_roll_x = sm.get("iti_roll_x", [])
+            iti_roll_y = sm.get("iti_roll_y", [])
+            if iti_roll_x and iti_roll_y:
+                fig_itir.add_trace(
+                    go.Scatter(
+                        x=iti_roll_x,
+                        y=iti_roll_y,
+                        mode="lines+markers",
+                        name=subj,
+                        showlegend=multi,
+                        legendgroup=grp,
+                        marker=dict(color=c, size=6),
+                        line=dict(color=c, width=2),
+                        hovertemplate="%{y:.3f}s" + ht_subj,
+                        visible=True,
+                    )
+                )
+                itir_combined_idx.append(itir_trace_count)
+                itir_trace_count += 1
+
+            for label, x_vals, y_vals, color, group, hover_label in [
+                (
+                    "After Correct",
+                    sm.get("iti_roll_correct_x", []),
+                    sm.get("iti_roll_correct_y", []),
+                    "mediumseagreen",
+                    "iti-roll-correct",
+                    "after correct",
+                ),
+                (
+                    "After Incorrect",
+                    sm.get("iti_roll_incorrect_x", []),
+                    sm.get("iti_roll_incorrect_y", []),
+                    "tomato",
+                    "iti-roll-incorrect",
+                    "after incorrect",
+                ),
+                (
+                    "After EW",
+                    sm.get("iti_roll_ew_x", []),
+                    sm.get("iti_roll_ew_y", []),
+                    "slategray",
+                    "iti-roll-ew",
+                    "after ew",
+                ),
+                (
+                    "After No Choice",
+                    sm.get("iti_roll_no_choice_x", []),
+                    sm.get("iti_roll_no_choice_y", []),
+                    "#6b7280",
+                    "iti-roll-no-choice",
+                    "after no choice",
+                ),
+            ]:
+                if x_vals and y_vals:
+                    fig_itir.add_trace(
+                        go.Scatter(
+                            x=x_vals,
+                            y=y_vals,
+                            mode="lines+markers",
+                            name=label,
+                            showlegend=i == 0,
+                            legendgroup=group,
+                            marker=dict(color=color, size=6),
+                            line=dict(color=color, width=2),
+                            hovertemplate=(
+                                "%{y:.3f}s<extra>"
+                                + hover_label
+                                + " · "
+                                + subj
+                                + "</extra>"
+                            ),
+                            visible=False,
+                        )
+                    )
+                    itir_split_idx.append(itir_trace_count)
+                    itir_trace_count += 1
 
         init_y_range = _robust_y_range(
             init_y_vals, pct=_TIMING_Y_CLIP_PCT, lower_bound=0
@@ -1689,180 +1864,75 @@ def create_app() -> Dash:
         )
 
         if multi:
-            _layout(fig_ih, title="Initiation Dist.", yaxis_title="time (s)")
+            _layout(fig_ih, title="Initiation Distribution", yaxis_title="time (s)")
         else:
             _layout(
                 fig_ih,
-                title="Initiation Dist.",
+                title="Initiation KDE",
                 xaxis_title="time (s)",
-                yaxis_title="count",
+                yaxis_title="density",
             )
 
         # Row 3
         _layout(
             fig_wdl,
-            title="Post-Go Center Dwell",
+            title="Center Dwell (Post-Go)",
             xaxis_title="trial number",
             yaxis_title="time (s)",
             yaxis_range=wait_delta_y_range,
         )
-        if wdl_combined_idx and wdl_split_idx:
-            off_visible = [idx in wdl_combined_idx for idx in range(wdl_trace_count)]
-            on_visible = [idx in wdl_split_idx for idx in range(wdl_trace_count)]
-            fig_wdl.update_layout(
-                updatemenus=[
-                    dict(
-                        type="buttons",
-                        direction="left",
-                        x=1.0,
-                        y=1.18,
-                        xanchor="right",
-                        yanchor="top",
-                        showactive=True,
-                        buttons=[
-                            dict(
-                                label="Choice",
-                                method="restyle",
-                                args=[{"visible": on_visible}],
-                                args2=[{"visible": off_visible}],
-                            )
-                        ],
-                    )
-                ]
-            )
+        _apply_split_toggle(
+            fig_wdl, wdl_combined_idx, wdl_split_idx, wdl_trace_count, "Choice"
+        )
         if multi:
             _layout(
                 fig_wdh,
-                title="Post-Go Center Dwell Dist.",
+                title="Center Dwell Distribution",
                 yaxis_title="time (s)",
                 boxmode="group",
             )
         else:
             _layout(
                 fig_wdh,
-                title="Post-Go Center Dwell Dist.",
+                title="Center Dwell KDE",
                 xaxis_title="time (s)",
-                yaxis_title="count",
+                yaxis_title="density",
             )
-        if wdh_combined_idx and wdh_split_idx:
-            off_visible = [idx in wdh_combined_idx for idx in range(wdh_trace_count)]
-            on_visible = [idx in wdh_split_idx for idx in range(wdh_trace_count)]
-            fig_wdh.update_layout(
-                updatemenus=[
-                    dict(
-                        type="buttons",
-                        direction="left",
-                        x=1.0,
-                        y=1.18,
-                        xanchor="right",
-                        yanchor="top",
-                        showactive=True,
-                        buttons=[
-                            dict(
-                                label="Choice",
-                                method="restyle",
-                                args=[{"visible": on_visible}],
-                                args2=[{"visible": off_visible}],
-                            )
-                        ],
-                    )
-                ]
-            )
+        _apply_split_toggle(
+            fig_wdh, wdh_combined_idx, wdh_split_idx, wdh_trace_count, "Choice"
+        )
         _layout(
             fig_wfl,
-            title="Wait Floor",
+            title="Minimum Wait (Floor)",
             xaxis_title="trial number",
             yaxis_title="time (s)",
             yaxis_range=wait_floor_y_range,
         )
-        if wfl_combined_idx and wfl_split_idx:
-            off_visible = [idx in wfl_combined_idx for idx in range(wfl_trace_count)]
-            on_visible = [idx in wfl_split_idx for idx in range(wfl_trace_count)]
-            fig_wfl.update_layout(
-                updatemenus=[
-                    dict(
-                        type="buttons",
-                        direction="left",
-                        x=1.0,
-                        y=1.18,
-                        xanchor="right",
-                        yanchor="top",
-                        showactive=True,
-                        buttons=[
-                            dict(
-                                label="Choice",
-                                method="restyle",
-                                args=[{"visible": on_visible}],
-                                args2=[{"visible": off_visible}],
-                            )
-                        ],
-                    )
-                ]
-            )
+        _apply_split_toggle(
+            fig_wfl, wfl_combined_idx, wfl_split_idx, wfl_trace_count, "Choice"
+        )
         if multi:
             _layout(
                 fig_wfh,
-                title="Wait Floor Dist.",
+                title="Minimum Wait Distribution",
                 yaxis_title="time (s)",
                 boxmode="group",
             )
         else:
             _layout(
                 fig_wfh,
-                title="Wait Floor Dist.",
+                title="Minimum Wait KDE",
                 xaxis_title="time (s)",
-                yaxis_title="count",
+                yaxis_title="density",
             )
-        if wfh_combined_idx and wfh_split_idx:
-            off_visible = [idx in wfh_combined_idx for idx in range(wfh_trace_count)]
-            on_visible = [idx in wfh_split_idx for idx in range(wfh_trace_count)]
-            fig_wfh.update_layout(
-                updatemenus=[
-                    dict(
-                        type="buttons",
-                        direction="left",
-                        x=1.0,
-                        y=1.18,
-                        xanchor="right",
-                        yanchor="top",
-                        showactive=True,
-                        buttons=[
-                            dict(
-                                label="Choice",
-                                method="restyle",
-                                args=[{"visible": on_visible}],
-                                args2=[{"visible": off_visible}],
-                            )
-                        ],
-                    )
-                ]
-            )
+        _apply_split_toggle(
+            fig_wfh, wfh_combined_idx, wfh_split_idx, wfh_trace_count, "Choice"
+        )
 
         # Row 4
-        if rt_combined_idx and rt_split_idx:
-            off_visible = [idx in rt_combined_idx for idx in range(rt_trace_count)]
-            on_visible = [idx in rt_split_idx for idx in range(rt_trace_count)]
-            fig_rt.update_layout(
-                updatemenus=[
-                    dict(
-                        type="buttons",
-                        direction="left",
-                        x=1.0,
-                        y=1.18,
-                        xanchor="right",
-                        yanchor="top",
-                        showactive=True,
-                        buttons=[
-                            dict(
-                                label="Choice",
-                                method="restyle",
-                                args=[{"visible": on_visible}],
-                                args2=[{"visible": off_visible}],
-                            ),
-                        ],
-                    )
-                ]
-            )
+        _apply_split_toggle(
+            fig_rt, rt_combined_idx, rt_split_idx, rt_trace_count, "Choice"
+        )
         if multi_col:
             _layout(
                 fig_rt,
@@ -1874,48 +1944,41 @@ def create_app() -> Dash:
         else:
             _layout(
                 fig_rt,
-                title="Response Time",
+                title="Response Time KDE",
                 xaxis_title="time (s)",
-                yaxis_title="count",
+                yaxis_title="density",
             )
         if multi_col:
-            _layout(fig_itid, title="ITIs", yaxis_title="time (s)", boxmode="group")
+            _layout(
+                fig_itid,
+                title="ITI Distribution",
+                yaxis_title="time (s)",
+                boxmode="group",
+            )
         else:
             _layout(
                 fig_itid,
-                title="ITIs",
+                title="ITI KDE",
                 xaxis_title="time (s)",
-                yaxis_title="count",
+                yaxis_title="density",
             )
-        if itid_combined_idx and itid_split_idx:
-            off_visible = [idx in itid_combined_idx for idx in range(itid_trace_count)]
-            on_visible = [idx in itid_split_idx for idx in range(itid_trace_count)]
-            fig_itid.update_layout(
-                updatemenus=[
-                    dict(
-                        type="buttons",
-                        direction="left",
-                        x=1.0,
-                        y=1.18,
-                        xanchor="right",
-                        yanchor="top",
-                        showactive=True,
-                        buttons=[
-                            dict(
-                                label="Outcome",
-                                method="restyle",
-                                args=[{"visible": on_visible}],
-                                args2=[{"visible": off_visible}],
-                            )
-                        ],
-                    )
-                ]
-            )
+        _apply_split_toggle(
+            fig_itid, itid_combined_idx, itid_split_idx, itid_trace_count, "Outcome"
+        )
         _layout(
             fig_tct,
             title="Trial Counts",
             xaxis_title="minutes from first trial",
             yaxis_title="count",
+        )
+        _layout(
+            fig_itir,
+            title="ITI Rolling Trend<br><sup>25-trial median</sup>",
+            xaxis_title="trial number",
+            yaxis_title="time (s)",
+        )
+        _apply_split_toggle(
+            fig_itir, itir_combined_idx, itir_split_idx, itir_trace_count, "Outcome"
         )
 
         _perf_log("_update_single", start, subjects=len(valid_subjects), multi=multi)
@@ -1933,7 +1996,72 @@ def create_app() -> Dash:
             fig_rt,
             fig_itid,
             fig_tct,
+            fig_itir,
         )
+
+    @app.callback(
+        Output("session-settings-box", "children"),
+        Output("water-side-box", "children"),
+        Input("subjects-recent", "value"),
+        Input("subjects-older", "value"),
+        Input("session-time", "value"),
+        Input("auto-refresh", "n_intervals"),
+        State("session-date", "date"),
+    )
+    def _update_overview_boxes(
+        subjects_recent, subjects_older, session_name, n_intervals, session_date
+    ):
+        """Populate overview text boxes with session settings and water totals."""
+        subjects = (subjects_recent or []) + (subjects_older or [])
+        sessions_by_subject = {s: get_sessions(s) for s in subjects}
+        valid_subjects = [s for s in subjects if sessions_by_subject.get(s)]
+
+        if not valid_subjects:
+            return (
+                "Select subject(s) to show session settings.",
+                "Select subject(s) to show cumulative rewarded water.",
+            )
+
+        settings_lines: list[str] = []
+        water_lines: list[str] = []
+        for i, subj in enumerate(valid_subjects):
+            sessions_list = sessions_by_subject[subj]
+            if i == 0 and session_name:
+                ses = session_name
+            elif session_date:
+                ses = _sessions_on_date(sessions_list, session_date)
+            else:
+                ses = sessions_list[-1] if sessions_list else None
+            if not ses:
+                continue
+
+            sm = session_metrics(subj, ses)
+            if not sm:
+                continue
+
+            subj_settings = sm.get("session_settings_lines", [])
+            if subj_settings:
+                settings_lines.append(f"{subj} ({ses})")
+                settings_lines.extend(f"  {line}" for line in subj_settings)
+
+            water_totals = sm.get("water_side_totals", [])
+            if len(water_totals) >= 2:
+                left = int(water_totals[0])
+                right = int(water_totals[1])
+                total = int(water_totals[2]) if len(water_totals) > 2 else left + right
+                water_lines.append(f"{subj}: left={left}, right={right}, total={total}")
+
+        settings_txt = (
+            "\n".join(settings_lines)
+            if settings_lines
+            else "Session settings unavailable for current selection."
+        )
+        water_txt = (
+            "\n".join(water_lines)
+            if water_lines
+            else "Water totals unavailable for current selection."
+        )
+        return settings_txt, water_txt
 
     # ── Multi-session plots ──────────────────────────────────────────────────
     @app.callback(

@@ -33,7 +33,8 @@ chipmunk-dashboard/
 │   ├── test_app.py          # Unit tests for app.py callbacks
 │   ├── test_cli.py          # Unit tests for the CLI
 │   ├── test_data.py         # Unit tests for data.py
-│   └── test_integration.py  # Integration tests using real third-party libraries
+│   ├── test_integration.py  # Integration tests using real third-party libraries
+│   └── test_playwright_ui.py # Browser smoke + screenshot regression tests
 ├── notebooks/
 │   └── ingest_subjects.ipynb   # One-off data exploration / ingestion helpers
 ├── .github/workflows/ci.yml    # GitHub Actions CI pipeline
@@ -169,7 +170,7 @@ in the existing modules.
 ### 2. GitHub Actions CI (on every push and PR)
 
 Defined in `.github/workflows/ci.yml`. Runs on every push to `main` or `dev`, and
-on every pull request targeting those branches. One job with five sequential steps:
+on every pull request targeting those branches. One job with seven sequential steps:
 
 | Step | Command | Purpose |
 |------|---------|---------|
@@ -179,10 +180,12 @@ on every pull request targeting those branches. One job with five sequential ste
 | Lint | `uv run ruff check .` | Same check as pre-commit, catches anything that slipped through |
 | Format | `uv run ruff format --check .` | Verifies formatting without modifying files |
 | Tests | `uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90` | Runs the full test suite with coverage; CI fails if coverage drops below 90% |
+| Install Playwright browser | `uv run playwright install --with-deps chromium` | Installs Chromium + OS dependencies for browser tests |
+| Playwright UI tests | `RUN_PLAYWRIGHT=1 uv run pytest tests/test_playwright_ui.py` | Runs browser-level smoke and screenshot-regression checks |
 
 ### 3. The test suite
 
-Four test files, 89 tests total. Currently at 99.8% coverage.
+Five test files plus browser E2E checks. Coverage is still enforced by CI.
 
 #### `tests/test_data.py` — unit tests for `data.py`
 
@@ -260,6 +263,26 @@ filtering, zero-choice side bias producing NaN, and `None` reaction times.
 
 Tests argument parsing, default values, that `create_app().run()` is called
 with the right host/port/debug, and that `--no-open` suppresses the browser.
+
+#### `tests/test_playwright_ui.py` — browser smoke + screenshot regression
+
+Runs real Chromium against a mocked-data dashboard server to verify end-user
+interaction flows and coarse layout regressions:
+
+- Subject selection and callback-driven figure rendering
+- Single-session tab navigation
+- Split-toggle visibility/interaction paths
+- Screenshot hash regression checks for Overview and Timing tab states
+
+This module is intentionally gated:
+
+```bash
+# Browser tests are opt-in locally
+RUN_PLAYWRIGHT=1 uv run pytest tests/test_playwright_ui.py
+
+# Regenerate screenshot hash baselines when UI changes are intentional
+RUN_PLAYWRIGHT=1 UPDATE_PLAYWRIGHT_HASHES=1 uv run pytest tests/test_playwright_ui.py
+```
 
 ---
 

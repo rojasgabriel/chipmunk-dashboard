@@ -35,3 +35,11 @@ jobs:
 
       - name: Run unit tests
         run: uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90
+
+      - name: Install Playwright browser
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run Playwright UI tests
+        env:
+          RUN_PLAYWRIGHT: "1"
+        run: uv run pytest tests/test_playwright_ui.py
