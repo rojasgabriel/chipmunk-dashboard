@@ -526,18 +526,23 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     for s in ustims:
         m = intensity == s
         t = trials[m]
-        nc = int((t.rewarded == 1).sum())
-        ni = int((t.punished == 1).sum())
-        ne = int((t.early_withdrawal == 1).sum())
-        nn = int(m.sum() - nc - ni - ne)
+        t_rewarded = t.rewarded.to_numpy() == 1
+        t_incorrect = (t.with_choice.to_numpy() == 1) & ~t_rewarded
+        t_ew_only = (t.early_withdrawal.to_numpy() == 1) & ~t_rewarded & ~t_incorrect
+        t_no_choice = ~(t_rewarded | t_incorrect | t_ew_only)
+
+        nc = int(np.sum(t_rewarded))
+        ni = int(np.sum(t_incorrect))
+        ne = int(np.sum(t_ew_only))
+        nn = int(np.sum(t_no_choice))
         n_correct.append(nc)
         n_incorrect.append(ni)
         n_ew.append(ne)
         n_no_choice.append(nn)
-        with_choice = t[t.with_choice == 1]
+        with_choice_trials = t[t.with_choice == 1]
         pr = (
-            (with_choice.response == 1).sum() / len(with_choice)
-            if len(with_choice)
+            (with_choice_trials.response == 1).sum() / len(with_choice_trials)
+            if len(with_choice_trials)
             else 0
         )
         p_right.append(pr)
@@ -547,10 +552,12 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         median_rt.append(float(np.median(trial_rts)) if len(trial_rts) else np.nan)
 
     # Within-session sliding-window performance (20-trial window)
-    choice_mask = trials.with_choice.to_numpy() == 1
+    with_choice = trials.with_choice.to_numpy()
+    choice_mask = with_choice == 1
     rewarded = trials.rewarded.to_numpy()
     trial_nums = trials.trial_num.to_numpy()
     win = 20
+    iti_roll_win = 25
     slide_x, slide_y = [], []
     choice_idx = np.where(choice_mask)[0]
     for start in range(0, len(choice_idx) - win + 1, 5):  # step 5
@@ -615,7 +622,6 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     response_raw = trials["t_response"].to_numpy() - trials["t_react"].to_numpy()
     response_vals = trials["response"].to_numpy()
     rewarded = trials["rewarded"].to_numpy()
-    punished = trials["punished"].to_numpy()
     early_withdrawal = trials["early_withdrawal"].to_numpy()
     response_mask = (
         np.isfinite(response_raw)
@@ -624,8 +630,20 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         & (response_vals != 0)
     )
     response_times = response_raw[response_mask]
-    response_left = response_raw[response_mask & (response_vals == -1)]
-    response_right = response_raw[response_mask & (response_vals == 1)]
+    response_trial_nums = trials["trial_num"].to_numpy()[response_mask]
+    response_choices = response_vals[response_mask]
+
+    response_sort_idx = np.argsort(response_trial_nums)
+    response_times = response_times[response_sort_idx]
+    response_trial_nums = response_trial_nums[response_sort_idx]
+    response_choices = response_choices[response_sort_idx]
+
+    response_left_mask = response_choices == -1
+    response_right_mask = response_choices == 1
+    response_left = response_times[response_left_mask]
+    response_right = response_times[response_right_mask]
+    response_trial_nums_left = response_trial_nums[response_left_mask]
+    response_trial_nums_right = response_trial_nums[response_right_mask]
 
     # Left/right choice splits for post-go center dwell and wait floor.
     wait_choice = response_vals[wait_mask]
@@ -640,13 +658,19 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
 
     # Rolling helper used for split traces.
     def _rolling_median(
-        x_vals: np.ndarray, y_vals: np.ndarray
+        x_vals: np.ndarray,
+        y_vals: np.ndarray,
+        window: int = win,
+        fallback_single: bool = False,
     ) -> tuple[list[int], list[float]]:
         roll_x: list[int] = []
         roll_y: list[float] = []
-        for start in range(0, len(y_vals) - win + 1, 5):
-            roll_x.append(int(np.mean(x_vals[start : start + win])))
-            roll_y.append(float(np.median(y_vals[start : start + win])))
+        for start in range(0, len(y_vals) - window + 1, 5):
+            roll_x.append(int(np.mean(x_vals[start : start + window])))
+            roll_y.append(float(np.median(y_vals[start : start + window])))
+        if fallback_single and not roll_x and len(y_vals):
+            roll_x.append(int(np.mean(x_vals)))
+            roll_y.append(float(np.median(y_vals)))
         return roll_x, roll_y
 
     wait_delta_left_roll_x, wait_delta_left_roll_y = _rolling_median(
@@ -661,14 +685,28 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     wait_right_roll_x, wait_right_roll_y = _rolling_median(
         wait_trial_nums_right, wait_right
     )
+    response_roll_x, response_roll_y = _rolling_median(
+        response_trial_nums, response_times
+    )
+    response_roll_left_x, response_roll_left_y = _rolling_median(
+        response_trial_nums_left, response_left
+    )
+    response_roll_right_x, response_roll_right_y = _rolling_median(
+        response_trial_nums_right, response_right
+    )
 
     # Inter-trial intervals from consecutive trial starts, split by preceding outcome.
     start_times_all = trials["t_start"].to_numpy()
     iti_all: list[float] = []
+    iti_trial_nums: list[int] = []
     iti_after_correct: list[float] = []
+    iti_trial_nums_after_correct: list[int] = []
     iti_after_incorrect: list[float] = []
+    iti_trial_nums_after_incorrect: list[int] = []
     iti_after_ew: list[float] = []
+    iti_trial_nums_after_ew: list[int] = []
     iti_after_no_choice: list[float] = []
+    iti_trial_nums_after_no_choice: list[int] = []
     for i in range(len(start_times_all) - 1):
         start_prev = start_times_all[i]
         start_next = start_times_all[i + 1]
@@ -677,27 +715,73 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         iti = float(start_next - start_prev)
         if not (0 < iti < 30):
             continue
+        iti_trial_num = int(trial_nums[i])
         iti_all.append(iti)
-        if rewarded[i] == 1:
+        iti_trial_nums.append(iti_trial_num)
+        prev_rewarded = rewarded[i] == 1
+        prev_with_choice = with_choice[i] == 1
+        prev_incorrect = prev_with_choice and (not prev_rewarded)
+        prev_ew = early_withdrawal[i] == 1
+
+        if prev_rewarded:
             iti_after_correct.append(iti)
-        elif punished[i] == 1:
+            iti_trial_nums_after_correct.append(iti_trial_num)
+        elif prev_incorrect:
             iti_after_incorrect.append(iti)
-        elif early_withdrawal[i] == 1:
+            iti_trial_nums_after_incorrect.append(iti_trial_num)
+        elif prev_ew:
             iti_after_ew.append(iti)
+            iti_trial_nums_after_ew.append(iti_trial_num)
         else:
             iti_after_no_choice.append(iti)
+            iti_trial_nums_after_no_choice.append(iti_trial_num)
     iti_vals = np.asarray(iti_all, dtype=float)
+    iti_roll_x, iti_roll_y = _rolling_median(
+        np.asarray(iti_trial_nums, dtype=int),
+        iti_vals,
+        window=iti_roll_win,
+    )
+    iti_roll_correct_x, iti_roll_correct_y = _rolling_median(
+        np.asarray(iti_trial_nums_after_correct, dtype=int),
+        np.asarray(iti_after_correct, dtype=float),
+        window=iti_roll_win,
+        fallback_single=True,
+    )
+    iti_roll_incorrect_x, iti_roll_incorrect_y = _rolling_median(
+        np.asarray(iti_trial_nums_after_incorrect, dtype=int),
+        np.asarray(iti_after_incorrect, dtype=float),
+        window=iti_roll_win,
+        fallback_single=True,
+    )
+    iti_roll_ew_x, iti_roll_ew_y = _rolling_median(
+        np.asarray(iti_trial_nums_after_ew, dtype=int),
+        np.asarray(iti_after_ew, dtype=float),
+        window=iti_roll_win,
+        fallback_single=True,
+    )
+    iti_roll_no_choice_x, iti_roll_no_choice_y = _rolling_median(
+        np.asarray(iti_trial_nums_after_no_choice, dtype=int),
+        np.asarray(iti_after_no_choice, dtype=float),
+        window=iti_roll_win,
+        fallback_single=True,
+    )
 
-    # Trial-count histogram across session time (5-minute bins from first trial).
-    start_times = start_times_all[np.isfinite(start_times_all)]
-    trial_count_bin_size_min = 5.0
+    # Rolling trial counts in a trailing 5-minute window, sampled every 5 trials.
+    start_mask = np.isfinite(start_times_all)
+    start_times = start_times_all[start_mask]
+    start_trial_nums = trial_nums[start_mask]
     if start_times.size:
-        elapsed_min = (start_times - start_times[0]) / 60.0
-        max_elapsed = float(np.max(elapsed_min)) if elapsed_min.size else 0.0
-        max_edge = max(trial_count_bin_size_min, max_elapsed + trial_count_bin_size_min)
-        bin_edges = np.arange(0.0, max_edge + 1e-9, trial_count_bin_size_min)
-        trial_count_vals, _ = np.histogram(elapsed_min, bins=bin_edges)
-        trial_count_x = (bin_edges[:-1] + (trial_count_bin_size_min / 2.0)).tolist()
+        window_sec = 5.0 * 60.0
+        trial_count_x: list[int] = []
+        trial_count_vals_list: list[float] = []
+        left_idx = 0
+        for idx, current_t in enumerate(start_times):
+            while left_idx < idx and start_times[left_idx] < (current_t - window_sec):
+                left_idx += 1
+            if idx % 5 == 0 or idx == (start_times.size - 1):
+                trial_count_x.append(int(start_trial_nums[idx]))
+                trial_count_vals_list.append(float(idx - left_idx + 1))
+        trial_count_vals = np.asarray(trial_count_vals_list, dtype=float)
     else:
         trial_count_vals = np.array([])
         trial_count_x = []
@@ -725,6 +809,147 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         ew_roll_x.append(int(np.mean(trial_nums_all[start : start + win])))
         ew_roll_y.append(float(np.mean(ew_raw[start : start + win])))
 
+    def _range_text(values: np.ndarray, precision: int = 2) -> str | None:
+        finite_vals = values[np.isfinite(values)]
+        if finite_vals.size == 0:
+            return None
+        lo = float(np.min(finite_vals))
+        hi = float(np.max(finite_vals))
+        if np.isclose(lo, hi):
+            return f"{lo:.{precision}f}"
+        return f"{lo:.{precision}f} to {hi:.{precision}f}"
+
+    session_settings_lines: list[str] = [f"trials: {len(trials)}"]
+    used_setting_cols: set[str] = set()
+
+    def _summarize_setting(col_name: str, label: str, mode: str = "auto") -> str | None:
+        if col_name not in trials.columns:
+            return None
+        series = trials[col_name].dropna()
+        if series.empty:
+            return None
+
+        numeric_vals = pd.to_numeric(series, errors="coerce").to_numpy(dtype=float)
+        finite_numeric = numeric_vals[np.isfinite(numeric_vals)]
+        if finite_numeric.size:
+            rounded = np.round(finite_numeric, 6)
+            unique_vals = np.unique(rounded)
+            if mode == "range" or (
+                mode == "auto" and len(unique_vals) > 3 and "stim" in col_name.lower()
+            ):
+                text = _range_text(finite_numeric)
+                if text is None:
+                    return None
+            elif len(unique_vals) <= 3:
+                text = ", ".join(f"{val:.3g}" for val in unique_vals.tolist())
+            else:
+                text = _range_text(finite_numeric)
+                if text is None:
+                    return None
+            return f"{label}: {text}"
+
+        text_vals = sorted({str(v) for v in series.tolist() if str(v).strip()})
+        if not text_vals or len(text_vals) > 4:
+            return None
+        return f"{label}: {', '.join(text_vals)}"
+
+    preferred_settings = [
+        ("rewarded_modality", "modality", "auto"),
+        ("category_boundary", "boundary", "auto"),
+        ("stim_rate_audio", "audio stim", "range"),
+        ("stim_rate_vision", "visual stim", "range"),
+        ("stim_rate_visual", "visual stim", "range"),
+        ("wait_duration", "wait duration", "auto"),
+        ("delay_duration", "delay duration", "auto"),
+        ("sample_duration", "sample duration", "auto"),
+        ("response_duration", "response duration", "auto"),
+        ("timeout_duration", "timeout duration", "auto"),
+        ("reward_amount", "reward amount", "auto"),
+        ("reward_amount_ul", "reward amount (µL)", "auto"),
+    ]
+    for col_name, label, mode in preferred_settings:
+        line = _summarize_setting(col_name, label, mode)
+        if line and line not in session_settings_lines:
+            session_settings_lines.append(line)
+            used_setting_cols.add(col_name)
+
+    excluded_cols = {
+        "subject_name",
+        "session_name",
+        "trial_num",
+        "response",
+        "rewarded",
+        "punished",
+        "early_withdrawal",
+        "with_choice",
+        "performance_easy",
+        "n_with_choice",
+        "response_values",
+        "initiation_times",
+        "reaction_times",
+    }
+    keyword_fragments = (
+        "stim",
+        "reward",
+        "wait",
+        "delay",
+        "timeout",
+        "sample",
+        "modality",
+        "boundary",
+        "block",
+        "choice",
+    )
+    for col_name in trials.columns:
+        col_l = col_name.lower()
+        if (
+            col_name in used_setting_cols
+            or col_name in excluded_cols
+            or col_name.startswith("t_")
+            or not any(fragment in col_l for fragment in keyword_fragments)
+        ):
+            continue
+        line = _summarize_setting(col_name, col_name.replace("_", " "), "auto")
+        if line and line not in session_settings_lines:
+            session_settings_lines.append(line)
+        if len(session_settings_lines) >= 9:
+            break
+
+    if start_times.size > 1:
+        session_duration_min = (
+            float(np.max(start_times)) - float(np.min(start_times))
+        ) / 60.0
+        session_settings_lines.append(f"duration: {session_duration_min:.1f} min")
+
+    rewarded_mask = rewarded == 1
+    rewarded_left_mask = rewarded_mask & (response_vals == -1)
+    rewarded_right_mask = rewarded_mask & (response_vals == 1)
+    water_by_session = get_subject_water(subject)
+    session_water_ml = water_by_session.get(session_name, np.nan)
+    session_water_ul = (
+        float(session_water_ml) * 1000.0
+        if np.isfinite(session_water_ml) and float(session_water_ml) > 0
+        else np.nan
+    )
+    rewarded_count = int(np.sum(rewarded_mask))
+    reward_step_ul = (
+        session_water_ul / rewarded_count
+        if rewarded_count and np.isfinite(session_water_ul)
+        else (1.0 if rewarded_count else 0.0)
+    )
+    water_step_total = np.where(rewarded_mask, reward_step_ul, 0.0)
+    water_step_left = np.where(rewarded_left_mask, reward_step_ul, 0.0)
+    water_step_right = np.where(rewarded_right_mask, reward_step_ul, 0.0)
+    water_cum_total = np.cumsum(water_step_total)
+    water_cum_left = np.cumsum(water_step_left)
+    water_cum_right = np.cumsum(water_step_right)
+    water_cum_x = trial_nums.astype(int).tolist()
+    water_side_totals_ul = [
+        float(water_cum_left[-1]) if water_cum_left.size else 0.0,
+        float(water_cum_right[-1]) if water_cum_right.size else 0.0,
+        float(water_cum_total[-1]) if water_cum_total.size else 0.0,
+    ]
+
     out = dict(
         stims=ustims.tolist(),
         n_correct=n_correct,
@@ -738,14 +963,40 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         rt_vals=rt_vals.tolist(),
         rt_roll_x=rt_roll_x,
         rt_roll_y=rt_roll_y,
+        response_trial_nums=response_trial_nums.astype(int).tolist(),
+        response_trial_nums_left=response_trial_nums_left.astype(int).tolist(),
+        response_trial_nums_right=response_trial_nums_right.astype(int).tolist(),
+        response_roll_x=response_roll_x,
+        response_roll_y=response_roll_y,
+        response_roll_left_x=response_roll_left_x,
+        response_roll_left_y=response_roll_left_y,
+        response_roll_right_x=response_roll_right_x,
+        response_roll_right_y=response_roll_right_y,
         response_times=response_times.tolist(),
         response_times_left=response_left.tolist(),
         response_times_right=response_right.tolist(),
+        session_settings_lines=session_settings_lines,
+        water_cum_x=water_cum_x,
+        water_cum_total_ul=water_cum_total.astype(float).tolist(),
+        water_cum_left_ul=water_cum_left.astype(float).tolist(),
+        water_cum_right_ul=water_cum_right.astype(float).tolist(),
+        water_side_totals=water_side_totals_ul,
+        water_side_totals_ul=water_side_totals_ul,
         iti_times=iti_vals.tolist(),
         iti_times_after_correct=iti_after_correct,
         iti_times_after_incorrect=iti_after_incorrect,
         iti_times_after_ew=iti_after_ew,
         iti_times_after_no_choice=iti_after_no_choice,
+        iti_roll_x=iti_roll_x,
+        iti_roll_y=iti_roll_y,
+        iti_roll_correct_x=iti_roll_correct_x,
+        iti_roll_correct_y=iti_roll_correct_y,
+        iti_roll_incorrect_x=iti_roll_incorrect_x,
+        iti_roll_incorrect_y=iti_roll_incorrect_y,
+        iti_roll_ew_x=iti_roll_ew_x,
+        iti_roll_ew_y=iti_roll_ew_y,
+        iti_roll_no_choice_x=iti_roll_no_choice_x,
+        iti_roll_no_choice_y=iti_roll_no_choice_y,
         trial_count_x=trial_count_x,
         trial_count_y=trial_count_vals.astype(float).tolist(),
         init_times=init_vals.tolist(),

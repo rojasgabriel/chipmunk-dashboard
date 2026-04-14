@@ -142,6 +142,27 @@ def _import_app_fake_dash_real_plotly():
     return module
 
 
+def _walk_components(node):
+    if node is None:
+        return
+    yield node
+    children = getattr(node, "children", None)
+    if children is None:
+        return
+    if isinstance(children, (list, tuple)):
+        for child in children:
+            yield from _walk_components(child)
+        return
+    yield from _walk_components(children)
+
+
+def _find_component_by_id(root, component_id: str):
+    for node in _walk_components(root):
+        if getattr(node, "id", None) == component_id:
+            return node
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Synthetic data fixtures
 # ---------------------------------------------------------------------------
@@ -197,6 +218,8 @@ def _make_session_metrics() -> dict:
     trial_nums = list(range(1, n + 1))
     roll_x = list(range(10, n - 9, 5))
     nroll = len(roll_x)
+    iti_roll_x = list(range(13, n - 12, 5))
+    n_iti_roll = len(iti_roll_x)
     return dict(
         stims=[-2.0, -1.0, 0.0, 1.0, 2.0],
         n_correct=[4, 6, 8, 12, 15],
@@ -210,6 +233,15 @@ def _make_session_metrics() -> dict:
         rt_vals=rng.uniform(0.1, 0.5, n).tolist(),
         rt_roll_x=roll_x,
         rt_roll_y=rng.uniform(0.2, 0.4, nroll).tolist(),
+        response_trial_nums=trial_nums,
+        response_trial_nums_left=trial_nums[::2],
+        response_trial_nums_right=trial_nums[1::2],
+        response_roll_x=roll_x,
+        response_roll_y=rng.uniform(0.1, 0.6, nroll).tolist(),
+        response_roll_left_x=roll_x,
+        response_roll_left_y=rng.uniform(0.1, 0.5, nroll).tolist(),
+        response_roll_right_x=roll_x,
+        response_roll_right_y=rng.uniform(0.2, 0.7, nroll).tolist(),
         init_times=rng.uniform(0.3, 2.0, n).tolist(),
         init_trial_nums=trial_nums,
         init_roll_x=roll_x,
@@ -239,13 +271,34 @@ def _make_session_metrics() -> dict:
         response_times=rng.uniform(0.05, 0.8, n).tolist(),
         response_times_left=rng.uniform(0.05, 0.5, n // 2).tolist(),
         response_times_right=rng.uniform(0.2, 0.9, n // 2).tolist(),
+        session_settings_lines=[
+            "trials: 100",
+            "rewarded modality: audio",
+            "audio stim range: 5.00 to 15.00",
+        ],
+        water_side_totals=[120.0, 150.0, 270.0],
+        water_side_totals_ul=[120.0, 150.0, 270.0],
+        water_cum_x=trial_nums,
+        water_cum_total_ul=np.cumsum(rng.uniform(1.0, 2.0, n)).tolist(),
+        water_cum_left_ul=np.cumsum(rng.uniform(0.4, 1.0, n)).tolist(),
+        water_cum_right_ul=np.cumsum(rng.uniform(0.4, 1.0, n)).tolist(),
         iti_times=rng.uniform(0.5, 3.0, n).tolist(),
         iti_times_after_correct=rng.uniform(0.5, 3.0, n // 4).tolist(),
         iti_times_after_incorrect=rng.uniform(0.5, 3.0, n // 4).tolist(),
         iti_times_after_ew=rng.uniform(0.5, 3.0, n // 4).tolist(),
         iti_times_after_no_choice=rng.uniform(0.5, 3.0, n // 4).tolist(),
-        trial_count_x=[2.5, 7.5, 12.5, 17.5],
-        trial_count_y=[25.0, 20.0, 18.0, 12.0],
+        iti_roll_x=iti_roll_x,
+        iti_roll_y=rng.uniform(0.5, 2.0, n_iti_roll).tolist(),
+        iti_roll_correct_x=iti_roll_x,
+        iti_roll_correct_y=rng.uniform(0.5, 2.0, n_iti_roll).tolist(),
+        iti_roll_incorrect_x=iti_roll_x,
+        iti_roll_incorrect_y=rng.uniform(0.5, 2.0, n_iti_roll).tolist(),
+        iti_roll_ew_x=iti_roll_x,
+        iti_roll_ew_y=rng.uniform(0.5, 2.0, n_iti_roll).tolist(),
+        iti_roll_no_choice_x=iti_roll_x,
+        iti_roll_no_choice_y=rng.uniform(0.5, 2.0, n_iti_roll).tolist(),
+        trial_count_x=[5, 10, 15, 20],
+        trial_count_y=[6.0, 8.0, 9.0, 10.0],
         slide_x=roll_x,
         slide_y=rng.uniform(0.5, 0.9, nroll).tolist(),
         ew_roll_x=roll_x,
@@ -559,6 +612,48 @@ class TestAppCreationWithRealLibs(unittest.TestCase):
         app = self.appmod.create_app()
         self.assertIsNotNone(app.layout)
 
+    def test_create_app_includes_single_session_tabs(self):
+        app = self.appmod.create_app()
+        tabs = _find_component_by_id(app.layout, "single-session-tabs")
+        self.assertIsNotNone(tabs)
+        self.assertEqual(tabs.value, "single-overview")
+        self.assertEqual(len(tabs.children), 2)
+        labels = [child.label for child in tabs.children]
+        values = [child.value for child in tabs.children]
+        self.assertEqual(labels, ["Overview", "Timing"])
+        self.assertEqual(values, ["single-overview", "single-timing"])
+
+    def test_create_app_includes_overview_summary_boxes(self):
+        app = self.appmod.create_app()
+        self.assertIsNotNone(_find_component_by_id(app.layout, "session-settings-box"))
+        self.assertIsNotNone(
+            _find_component_by_id(app.layout, "session-settings-toggle")
+        )
+        self.assertIsNotNone(_find_component_by_id(app.layout, "water-cumulative"))
+
+    def test_create_app_places_iti_row_after_response_time_row(self):
+        app = self.appmod.create_app()
+        tabs = _find_component_by_id(app.layout, "single-session-tabs")
+        self.assertIsNotNone(tabs)
+        timing_tab = next(
+            child for child in tabs.children if child.value == "single-timing"
+        )
+        rows = list(timing_tab.children.children)
+        row_ids = []
+        for row in rows:
+            children = (
+                row.children
+                if isinstance(row.children, (list, tuple))
+                else [row.children]
+            )
+            row_ids.append(tuple(getattr(child, "id", None) for child in children))
+
+        response_row = ("response-time-line", "response-time")
+        iti_row = ("iti-rolling", "iti-dist")
+        self.assertIn(response_row, row_ids)
+        self.assertIn(iti_row, row_ids)
+        self.assertLess(row_ids.index(response_row), row_ids.index(iti_row))
+
     def test_empty_fig_returns_real_plotly_figure(self):
         fig = self.appmod._empty_fig("No data")
         self.assertIsInstance(fig, go.Figure)
@@ -585,7 +680,12 @@ class TestSessionMetricsWithRealLibs(unittest.TestCase):
 
     def test_session_metrics_returns_all_expected_keys(self):
         trials = _make_trial_dataframe()
-        with mock.patch.object(self.data, "get_session_trials", return_value=trials):
+        with (
+            mock.patch.object(self.data, "get_session_trials", return_value=trials),
+            mock.patch.object(
+                self.data, "get_subject_water", return_value={"20260101_010101": 1.5}
+            ),
+        ):
             result = self.data.session_metrics("subject-a", "20260101_010101")
 
         self.assertIsNotNone(result)
@@ -602,9 +702,25 @@ class TestSessionMetricsWithRealLibs(unittest.TestCase):
             "rt_vals",
             "rt_roll_x",
             "rt_roll_y",
+            "response_trial_nums",
+            "response_trial_nums_left",
+            "response_trial_nums_right",
+            "response_roll_x",
+            "response_roll_y",
+            "response_roll_left_x",
+            "response_roll_left_y",
+            "response_roll_right_x",
+            "response_roll_right_y",
             "response_times",
             "response_times_left",
             "response_times_right",
+            "session_settings_lines",
+            "water_side_totals",
+            "water_side_totals_ul",
+            "water_cum_x",
+            "water_cum_total_ul",
+            "water_cum_left_ul",
+            "water_cum_right_ul",
             "iti_times",
             "trial_count_x",
             "trial_count_y",
@@ -642,12 +758,27 @@ class TestSessionMetricsWithRealLibs(unittest.TestCase):
             "iti_times_after_incorrect",
             "iti_times_after_ew",
             "iti_times_after_no_choice",
+            "iti_roll_x",
+            "iti_roll_y",
+            "iti_roll_correct_x",
+            "iti_roll_correct_y",
+            "iti_roll_incorrect_x",
+            "iti_roll_incorrect_y",
+            "iti_roll_ew_x",
+            "iti_roll_ew_y",
+            "iti_roll_no_choice_x",
+            "iti_roll_no_choice_y",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 
     def test_session_metrics_all_values_are_plain_lists(self):
         trials = _make_trial_dataframe()
-        with mock.patch.object(self.data, "get_session_trials", return_value=trials):
+        with (
+            mock.patch.object(self.data, "get_session_trials", return_value=trials),
+            mock.patch.object(
+                self.data, "get_subject_water", return_value={"20260101_010101": 1.5}
+            ),
+        ):
             result = self.data.session_metrics("subject-a", "20260101_010101")
 
         self.assertIsNotNone(result)
@@ -662,6 +793,55 @@ class TestSessionMetricsWithRealLibs(unittest.TestCase):
         ):
             result = self.data.session_metrics("subject-a", "20260101_010101")
         self.assertIsNone(result)
+
+    def test_session_metrics_iti_incorrect_falls_back_to_unrewarded_choices(self):
+        trials = _make_trial_dataframe().head(6).copy()
+        trials["trial_num"] = [1, 2, 3, 4, 5, 6]
+        trials["t_start"] = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0]
+        trials["t_stim"] = [0.5, 2.5, 4.5, 6.5, 8.5, 10.5]
+        trials["t_gocue"] = [1.0, 3.0, 5.0, 7.0, 9.0, 11.0]
+        trials["t_react"] = [1.2, 3.2, 5.2, 7.2, 9.2, 11.2]
+        trials["t_response"] = [1.5, 3.5, 5.5, 7.5, 9.5, 11.5]
+        trials["response"] = [1, 1, -1, -1, 1, 1]
+        trials["with_choice"] = [1, 1, 1, 1, 1, 1]
+        # Trial 1 is incorrect even though punished=0, which is a valid data shape.
+        trials["rewarded"] = [0, 1, 1, 1, 1, 1]
+        trials["punished"] = [0, 0, 0, 0, 0, 0]
+        trials["early_withdrawal"] = [0, 0, 0, 0, 0, 0]
+
+        with (
+            mock.patch.object(self.data, "get_session_trials", return_value=trials),
+            mock.patch.object(self.data, "get_subject_water", return_value={}),
+        ):
+            result = self.data.session_metrics("subject-a", "20260101_010101")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["iti_times_after_incorrect"], [2.0])
+        self.assertEqual(result["iti_roll_incorrect_x"], [1])
+        self.assertEqual(result["iti_roll_incorrect_y"], [2.0])
+
+    def test_session_metrics_incorrect_count_uses_with_choice_and_rewarded(self):
+        trials = _make_trial_dataframe().head(6).copy()
+        trials["trial_num"] = [1, 2, 3, 4, 5, 6]
+        trials["stim_rate_audio"] = [10.0] * 6
+        trials["stim_rate_vision"] = [10.0] * 6
+        trials["rewarded"] = [1, 0, 0, 0, 1, 0]
+        trials["with_choice"] = [1, 1, 1, 0, 0, 1]
+        trials["early_withdrawal"] = [0, 0, 1, 1, 0, 0]
+        # punished is intentionally unused for incorrect classification.
+        trials["punished"] = [0, 0, 0, 0, 0, 0]
+
+        with (
+            mock.patch.object(self.data, "get_session_trials", return_value=trials),
+            mock.patch.object(self.data, "get_subject_water", return_value={}),
+        ):
+            result = self.data.session_metrics("subject-a", "20260101_010101")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["n_correct"], [2])
+        self.assertEqual(result["n_incorrect"], [3])
+        self.assertEqual(result["n_ew"], [1])
+        self.assertEqual(result["n_no_choice"], [0])
 
 
 class TestMultisessionMetricsWithRealLibs(unittest.TestCase):
@@ -741,7 +921,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.addCleanup(lambda: sys.modules.pop("chipmunk_dashboard.app", None))
         self.appmod = _import_app_fake_dash_real_plotly()
 
-    def test_update_single_single_subject_returns_thirteen_figures(self):
+    def test_update_single_single_subject_returns_sixteen_figures(self):
         app = self.appmod.create_app()
         update_single = app.callbacks["_update_single"]
         sm = _make_session_metrics()
@@ -753,7 +933,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         ):
             figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
 
-        self.assertEqual(len(figures), 13)
+        self.assertEqual(len(figures), 16)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
         # Single-subject outcome chart: 4 vertical bar traces (one per outcome type)
@@ -767,22 +947,35 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.assertIsNotNone(figures[4].layout.yaxis.range)
         self.assertIsNotNone(figures[6].layout.yaxis.range)
         self.assertIsNotNone(figures[8].layout.yaxis.range)
-        # Wait-floor-hist includes aggregate + split traces.
+        # Wait-floor dist panel includes aggregate + split traces.
         self.assertGreaterEqual(len(figures[9].data), 1)
-        self.assertIsInstance(figures[9].data[0], go.Histogram)
-        # Response-time plot (index 10): combined histogram + split hidden traces
+        self.assertIsInstance(figures[9].data[0], go.Scatter)
+        # Response-time rolling plot (index 10): raw + rolling (+ split hidden traces)
         self.assertGreaterEqual(len(figures[10].data), 3)
-        self.assertIsInstance(figures[10].data[0], go.Histogram)
+        self.assertIsInstance(figures[10].data[0], go.Scattergl)
         self.assertEqual(figures[10].layout.updatemenus[0].buttons[0].label, "Choice")
+        self.assertEqual(figures[10].layout.updatemenus[0].active, -1)
+        # Response-time dist (index 11): combined KDE + split hidden traces
+        self.assertGreaterEqual(len(figures[11].data), 3)
+        self.assertIsInstance(figures[11].data[0], go.Scatter)
+        self.assertEqual(figures[11].layout.updatemenus[0].buttons[0].label, "Choice")
         self.assertEqual(figures[6].layout.updatemenus[0].buttons[0].label, "Choice")
         self.assertEqual(figures[8].layout.updatemenus[0].buttons[0].label, "Choice")
-        self.assertEqual(figures[11].layout.updatemenus[0].buttons[0].label, "Outcome")
-        # ITI dist (index 11) includes aggregate + split traces.
-        self.assertGreaterEqual(len(figures[11].data), 1)
-        self.assertIsInstance(figures[11].data[0], go.Histogram)
-        # Trial-count-time (index 12) is bar in single-subject mode
-        self.assertEqual(len(figures[12].data), 1)
-        self.assertIsInstance(figures[12].data[0], go.Bar)
+        self.assertEqual(figures[12].layout.updatemenus[0].buttons[0].label, "Outcome")
+        # ITI dist panel (index 12) includes aggregate + split traces.
+        self.assertGreaterEqual(len(figures[12].data), 1)
+        self.assertIsInstance(figures[12].data[0], go.Scatter)
+        # Trial-count-time (index 13) is a rolling scatter in single-subject mode
+        self.assertEqual(len(figures[13].data), 1)
+        self.assertIsInstance(figures[13].data[0], go.Scatter)
+        # Water cumulative plot (index 14) has line traces + side toggle
+        self.assertGreaterEqual(len(figures[14].data), 1)
+        self.assertIsInstance(figures[14].data[0], go.Scatter)
+        self.assertEqual(figures[14].layout.updatemenus[0].buttons[0].label, "Side")
+        # ITI rolling trend (index 15) includes aggregate + split traces.
+        self.assertGreaterEqual(len(figures[15].data), 1)
+        self.assertIsInstance(figures[15].data[0], go.Scatter)
+        self.assertEqual(figures[15].layout.updatemenus[0].buttons[0].label, "Outcome")
 
     def test_update_single_multi_subject_uses_box_and_horizontal_bars(self):
         app = self.appmod.create_app()
@@ -798,7 +991,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
                 ["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01"
             )
 
-        self.assertEqual(len(figures), 13)
+        self.assertEqual(len(figures), 16)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
         # Multi-col outcome chart: 4 horizontal bar traces
@@ -811,12 +1004,36 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.assertGreaterEqual(len(figures[8].data), 4)
         # Wait-floor dist (index 9) uses Box in multi mode
         self.assertIsInstance(figures[9].data[0], go.Box)
-        # Response-time plot (index 10) uses per-subject box plots in multi mode
-        self.assertIsInstance(figures[10].data[0], go.Box)
-        # ITI dist (index 11) uses Box in multi mode
+        # Response-time rolling (index 10) uses scatter markers/lines in multi mode
+        self.assertIsInstance(figures[10].data[0], go.Scattergl)
+        # Response-time dist (index 11) uses per-subject box plots in multi mode
         self.assertIsInstance(figures[11].data[0], go.Box)
-        # Trial-count-time (index 12) uses scatter in multi mode
-        self.assertIsInstance(figures[12].data[0], go.Scatter)
+        # ITI dist (index 12) uses Box in multi mode
+        self.assertIsInstance(figures[12].data[0], go.Box)
+        # Trial-count-time (index 13) uses scatter in multi mode
+        self.assertIsInstance(figures[13].data[0], go.Scatter)
+        # Water cumulative (index 14) uses scatter in multi mode
+        self.assertIsInstance(figures[14].data[0], go.Scatter)
+        # ITI rolling trend (index 15) uses scatter lines in multi mode
+        self.assertIsInstance(figures[15].data[0], go.Scatter)
+
+    def test_update_overview_boxes_renders_subject_summaries(self):
+        app = self.appmod.create_app()
+        update_overview_boxes = app.callbacks["_update_overview_boxes"]
+        sm = _make_session_metrics()
+        with (
+            mock.patch.object(
+                self.appmod, "get_sessions", return_value=["20260101_010101"]
+            ),
+            mock.patch.object(self.appmod, "session_metrics", return_value=sm),
+        ):
+            settings = update_overview_boxes(
+                ["subject-a"], [], "20260101_010101", 0, None
+            )
+
+        self.assertIn("subject-a (20260101_010101)", settings)
+        self.assertIn("rewarded modality", settings)
+        self.assertIn("water (µL):", settings)
 
     def test_update_multi_with_data_returns_eight_figures(self):
         app = self.appmod.create_app()
@@ -860,7 +1077,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
                 ["subject-a"], ["subject-b"], "20260101_010101", 0, "2026-01-01"
             )
 
-        self.assertEqual(len(figures), 13)
+        self.assertEqual(len(figures), 16)
 
     def test_update_multi_recent_and_older_subjects_are_merged(self):
         """Subjects from both checklists are combined and processed together."""
@@ -880,7 +1097,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         # ses = "" which is falsy → the loop body is skipped via continue.
         with mock.patch.object(self.appmod, "get_sessions", return_value=[""]):
             figures = update_single(["subject-a"], [], None, 0, None)
-        self.assertEqual(len(figures), 13)
+        self.assertEqual(len(figures), 16)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
 
@@ -895,7 +1112,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
             mock.patch.object(self.appmod, "session_metrics", return_value=None),
         ):
             figures = update_single(["subject-a"], [], "20260101_010101", 0, None)
-        self.assertEqual(len(figures), 13)
+        self.assertEqual(len(figures), 16)
 
     def test_update_multi_skips_subject_when_multisession_metrics_none(self):
         """Line 1128: `if not ms: continue` — multisession_metrics returns None."""
