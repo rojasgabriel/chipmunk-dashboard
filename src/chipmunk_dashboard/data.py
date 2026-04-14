@@ -526,18 +526,23 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     for s in ustims:
         m = intensity == s
         t = trials[m]
-        nc = int((t.rewarded == 1).sum())
-        ni = int((t.punished == 1).sum())
-        ne = int((t.early_withdrawal == 1).sum())
-        nn = int(m.sum() - nc - ni - ne)
+        t_rewarded = t.rewarded.to_numpy() == 1
+        t_incorrect = (t.with_choice.to_numpy() == 1) & ~t_rewarded
+        t_ew_only = (t.early_withdrawal.to_numpy() == 1) & ~t_rewarded & ~t_incorrect
+        t_no_choice = ~(t_rewarded | t_incorrect | t_ew_only)
+
+        nc = int(np.sum(t_rewarded))
+        ni = int(np.sum(t_incorrect))
+        ne = int(np.sum(t_ew_only))
+        nn = int(np.sum(t_no_choice))
         n_correct.append(nc)
         n_incorrect.append(ni)
         n_ew.append(ne)
         n_no_choice.append(nn)
-        with_choice = t[t.with_choice == 1]
+        with_choice_trials = t[t.with_choice == 1]
         pr = (
-            (with_choice.response == 1).sum() / len(with_choice)
-            if len(with_choice)
+            (with_choice_trials.response == 1).sum() / len(with_choice_trials)
+            if len(with_choice_trials)
             else 0
         )
         p_right.append(pr)
@@ -547,7 +552,8 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         median_rt.append(float(np.median(trial_rts)) if len(trial_rts) else np.nan)
 
     # Within-session sliding-window performance (20-trial window)
-    choice_mask = trials.with_choice.to_numpy() == 1
+    with_choice = trials.with_choice.to_numpy()
+    choice_mask = with_choice == 1
     rewarded = trials.rewarded.to_numpy()
     trial_nums = trials.trial_num.to_numpy()
     win = 20
@@ -616,7 +622,6 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     response_raw = trials["t_response"].to_numpy() - trials["t_react"].to_numpy()
     response_vals = trials["response"].to_numpy()
     rewarded = trials["rewarded"].to_numpy()
-    punished = trials["punished"].to_numpy()
     early_withdrawal = trials["early_withdrawal"].to_numpy()
     response_mask = (
         np.isfinite(response_raw)
@@ -653,13 +658,19 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
 
     # Rolling helper used for split traces.
     def _rolling_median(
-        x_vals: np.ndarray, y_vals: np.ndarray, window: int = win
+        x_vals: np.ndarray,
+        y_vals: np.ndarray,
+        window: int = win,
+        fallback_single: bool = False,
     ) -> tuple[list[int], list[float]]:
         roll_x: list[int] = []
         roll_y: list[float] = []
         for start in range(0, len(y_vals) - window + 1, 5):
             roll_x.append(int(np.mean(x_vals[start : start + window])))
             roll_y.append(float(np.median(y_vals[start : start + window])))
+        if fallback_single and not roll_x and len(y_vals):
+            roll_x.append(int(np.mean(x_vals)))
+            roll_y.append(float(np.median(y_vals)))
         return roll_x, roll_y
 
     wait_delta_left_roll_x, wait_delta_left_roll_y = _rolling_median(
@@ -707,13 +718,18 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         iti_trial_num = int(trial_nums[i])
         iti_all.append(iti)
         iti_trial_nums.append(iti_trial_num)
-        if rewarded[i] == 1:
+        prev_rewarded = rewarded[i] == 1
+        prev_with_choice = with_choice[i] == 1
+        prev_incorrect = prev_with_choice and (not prev_rewarded)
+        prev_ew = early_withdrawal[i] == 1
+
+        if prev_rewarded:
             iti_after_correct.append(iti)
             iti_trial_nums_after_correct.append(iti_trial_num)
-        elif punished[i] == 1:
+        elif prev_incorrect:
             iti_after_incorrect.append(iti)
             iti_trial_nums_after_incorrect.append(iti_trial_num)
-        elif early_withdrawal[i] == 1:
+        elif prev_ew:
             iti_after_ew.append(iti)
             iti_trial_nums_after_ew.append(iti_trial_num)
         else:
@@ -729,33 +745,43 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         np.asarray(iti_trial_nums_after_correct, dtype=int),
         np.asarray(iti_after_correct, dtype=float),
         window=iti_roll_win,
+        fallback_single=True,
     )
     iti_roll_incorrect_x, iti_roll_incorrect_y = _rolling_median(
         np.asarray(iti_trial_nums_after_incorrect, dtype=int),
         np.asarray(iti_after_incorrect, dtype=float),
         window=iti_roll_win,
+        fallback_single=True,
     )
     iti_roll_ew_x, iti_roll_ew_y = _rolling_median(
         np.asarray(iti_trial_nums_after_ew, dtype=int),
         np.asarray(iti_after_ew, dtype=float),
         window=iti_roll_win,
+        fallback_single=True,
     )
     iti_roll_no_choice_x, iti_roll_no_choice_y = _rolling_median(
         np.asarray(iti_trial_nums_after_no_choice, dtype=int),
         np.asarray(iti_after_no_choice, dtype=float),
         window=iti_roll_win,
+        fallback_single=True,
     )
 
-    # Trial-count histogram across session time (5-minute bins from first trial).
-    start_times = start_times_all[np.isfinite(start_times_all)]
-    trial_count_bin_size_min = 5.0
+    # Rolling trial counts in a trailing 5-minute window, sampled every 5 trials.
+    start_mask = np.isfinite(start_times_all)
+    start_times = start_times_all[start_mask]
+    start_trial_nums = trial_nums[start_mask]
     if start_times.size:
-        elapsed_min = (start_times - start_times[0]) / 60.0
-        max_elapsed = float(np.max(elapsed_min)) if elapsed_min.size else 0.0
-        max_edge = max(trial_count_bin_size_min, max_elapsed + trial_count_bin_size_min)
-        bin_edges = np.arange(0.0, max_edge + 1e-9, trial_count_bin_size_min)
-        trial_count_vals, _ = np.histogram(elapsed_min, bins=bin_edges)
-        trial_count_x = (bin_edges[:-1] + (trial_count_bin_size_min / 2.0)).tolist()
+        window_sec = 5.0 * 60.0
+        trial_count_x: list[int] = []
+        trial_count_vals_list: list[float] = []
+        left_idx = 0
+        for idx, current_t in enumerate(start_times):
+            while left_idx < idx and start_times[left_idx] < (current_t - window_sec):
+                left_idx += 1
+            if idx % 5 == 0 or idx == (start_times.size - 1):
+                trial_count_x.append(int(start_trial_nums[idx]))
+                trial_count_vals_list.append(float(idx - left_idx + 1))
+        trial_count_vals = np.asarray(trial_count_vals_list, dtype=float)
     else:
         trial_count_vals = np.array([])
         trial_count_x = []

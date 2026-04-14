@@ -178,8 +178,8 @@ def _session_metrics_payload() -> dict:
         "iti_roll_ew_y": [0.99, 1.0, 1.01, 1.02, 1.03, 1.02, 1.01, 1.0],
         "iti_roll_no_choice_x": iti_roll_x,
         "iti_roll_no_choice_y": [0.9, 0.92, 0.94, 0.95, 0.96, 0.95, 0.94, 0.93],
-        "trial_count_x": [2.5, 7.5, 12.5, 17.5],
-        "trial_count_y": [24.0, 19.0, 15.0, 10.0],
+        "trial_count_x": [5, 10, 15, 20],
+        "trial_count_y": [6.0, 8.0, 9.0, 10.0],
     }
 
 

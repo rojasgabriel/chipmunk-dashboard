@@ -30,7 +30,7 @@
 }
 
 .overview-summary-stack {
-  margin-top: 8px;
+  margin-top: 4px;
   margin-bottom: 12px;
 }
 
@@ -40,6 +40,37 @@
   border-radius: 8px;
   padding: 12px;
   min-height: 110px;
+}
+
+.overview-settings-toggle {
+  background: #ffffff;
+  border: 1px solid #e3e7ef;
+  border-radius: 8px;
+}
+
+.overview-settings-toggle > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 10px 12px;
+}
+
+.overview-settings-toggle[open] > summary {
+  border-bottom: 1px solid #e3e7ef;
+}
+
+.overview-settings-toggle > summary::-webkit-details-marker {
+  display: none;
+}
+
+.overview-settings-toggle .overview-summary-card {
+  border: 0;
+  border-radius: 0 0 8px 8px;
+  min-height: 0;
+  padding-top: 10px;
+}
+
+.dashboard-row {
+  align-items: stretch;
 }
 
 @media (max-width: 1200px) {

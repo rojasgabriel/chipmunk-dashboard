@@ -37,13 +37,13 @@ _PLOT_H_BY_ID: dict[str, str] = {
     "response-time-line": "300px",
     "iti-rolling": "320px",
     "water-cumulative": "300px",
-    # compact distribution / count panels
-    "init-hist": "250px",
-    "wait-delta-hist": "250px",
-    "wait-floor-hist": "250px",
-    "response-time": "250px",
-    "iti-dist": "250px",
-    "trial-count-time": "250px",
+    # distribution / count panels
+    "init-hist": "300px",
+    "wait-delta-hist": "300px",
+    "wait-floor-hist": "300px",
+    "response-time": "300px",
+    "iti-dist": "300px",
+    "trial-count-time": "300px",
 }
 _MAX_W = "560px"  # max width per plot
 _TIMING_Y_CLIP_PCT = 95.0
@@ -543,31 +543,39 @@ def create_app() -> Dash:
     single_overview = html.Div(
         [
             _row("frac-correct", "p-right", "chrono", "session-perf"),
+            _row("trial-count-time", "water-cumulative"),
             html.Div(
                 [
-                    html.Div(
+                    html.Details(
                         [
-                            html.H4("Session Settings", style={"margin": "0 0 8px"}),
-                            html.Pre(
-                                "Select subject(s) to show settings and water summary.",
-                                id="session-settings-box",
-                                style={"margin": 0, "whiteSpace": "pre-wrap"},
+                            html.Summary("Session settings"),
+                            html.Div(
+                                [
+                                    html.Pre(
+                                        "Select subject(s) to show settings.",
+                                        id="session-settings-box",
+                                        style={"margin": 0, "whiteSpace": "pre-wrap"},
+                                    )
+                                ],
+                                className="overview-summary-card",
                             ),
                         ],
-                        className="overview-summary-card",
-                    ),
+                        id="session-settings-toggle",
+                        className="overview-settings-toggle",
+                    )
                 ],
                 className="overview-summary-stack",
             ),
-            _row("trial-count-time", "water-cumulative"),
         ],
         className="single-tab-pane",
     )
     single_timing = html.Div(
         [
-            _row("init-line", "init-hist", "wait-delta-line", "wait-delta-hist"),
-            _row("wait-floor-line", "wait-floor-hist", "iti-rolling", "iti-dist"),
+            _row("init-line", "init-hist"),
+            _row("wait-delta-line", "wait-delta-hist"),
+            _row("wait-floor-line", "wait-floor-hist"),
             _row("response-time-line", "response-time"),
+            _row("iti-rolling", "iti-dist"),
         ],
         className="single-tab-pane",
     )
@@ -1825,31 +1833,19 @@ def create_app() -> Dash:
             trial_count_x = sm.get("trial_count_x", [])
             trial_count_y = sm.get("trial_count_y", [])
             if trial_count_x and trial_count_y:
-                if multi_col:
-                    fig_tct.add_trace(
-                        go.Scatter(
-                            x=trial_count_x,
-                            y=trial_count_y,
-                            mode="lines+markers",
-                            name=subj,
-                            showlegend=True,
-                            legendgroup=grp,
-                            marker=dict(color=c, size=6),
-                            line=dict(color=c, width=2),
-                            hovertemplate="%{y:.0f}<extra>" + subj + "</extra>",
-                        )
+                fig_tct.add_trace(
+                    go.Scatter(
+                        x=trial_count_x,
+                        y=trial_count_y,
+                        mode="lines+markers",
+                        name=subj,
+                        showlegend=multi_col,
+                        legendgroup=grp,
+                        marker=dict(color=c, size=6),
+                        line=dict(color=c, width=2),
+                        hovertemplate="%{y:.0f}<extra>" + subj + "</extra>",
                     )
-                else:
-                    fig_tct.add_trace(
-                        go.Bar(
-                            x=trial_count_x,
-                            y=trial_count_y,
-                            name=subj,
-                            marker_color=c,
-                            showlegend=False,
-                            hovertemplate="%{y:.0f}<extra></extra>",
-                        )
-                    )
+                )
 
             water_cum_x = sm.get("water_cum_x", [])
             water_cum_total = sm.get("water_cum_total_ul", [])
@@ -2205,13 +2201,13 @@ def create_app() -> Dash:
         )
         _layout(
             fig_tct,
-            title="Trial Counts",
-            xaxis_title="minutes from first trial",
-            yaxis_title="count",
+            title="Rolling Trial Counts",
+            xaxis_title="trial number",
+            yaxis_title="trials in last 5 min",
         )
         _layout(
             fig_wc,
-            title="Cumulative Water",
+            title="Cumulative Rewarded Water (µL)",
             xaxis_title="trial number",
             yaxis_title="water (µL)",
         )

@@ -153,6 +153,8 @@ class TestAppUtilities(unittest.TestCase):
         values = [child["kwargs"]["value"] for child in children]
         self.assertEqual(labels, ["Overview", "Timing"])
         self.assertEqual(values, ["single-overview", "single-timing"])
+        toggle = _find_fake_component(app.layout, "Details", "session-settings-toggle")
+        self.assertIsNotNone(toggle)
 
     def test_perf_log_skips_when_disabled(self) -> None:
         with (
@@ -375,8 +377,8 @@ class TestAppUtilities(unittest.TestCase):
             "iti_roll_ew_y": [1.0],
             "iti_roll_no_choice_x": [28],
             "iti_roll_no_choice_y": [0.85],
-            "trial_count_x": [2.5, 7.5],
-            "trial_count_y": [20.0, 18.0],
+            "trial_count_x": [5, 10],
+            "trial_count_y": [6.0, 8.0],
         }
 
         with (
