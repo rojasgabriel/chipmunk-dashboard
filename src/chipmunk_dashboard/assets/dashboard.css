@@ -29,11 +29,9 @@
   margin-bottom: 8px;
 }
 
-.overview-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.overview-summary-stack {
   margin-top: 8px;
+  margin-bottom: 12px;
 }
 
 .overview-summary-card {
@@ -81,9 +79,5 @@
 
   .subjects-list {
     height: 26vh;
-  }
-
-  .overview-summary-grid {
-    grid-template-columns: 1fr;
   }
 }

@@ -34,7 +34,9 @@ _PLOT_H_BY_ID: dict[str, str] = {
     "init-line": "300px",
     "wait-delta-line": "300px",
     "wait-floor-line": "300px",
+    "response-time-line": "300px",
     "iti-rolling": "320px",
+    "water-cumulative": "300px",
     # compact distribution / count panels
     "init-hist": "250px",
     "wait-delta-hist": "250px",
@@ -315,7 +317,67 @@ def create_app() -> Dash:
             ]
         )
 
-    def _add_kde_trace(
+    def _kde_line_xy(
+        values: list[float], points: int = 128
+    ) -> tuple[list[float], list[float]]:
+        """Compute x/y points for a Gaussian KDE line."""
+        finite_vals: list[float] = []
+        for raw_val in values:
+            try:
+                val = float(raw_val)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(val):
+                finite_vals.append(val)
+        n_vals = len(finite_vals)
+        if n_vals == 0:
+            return [], []
+        if n_vals == 1:
+            center = finite_vals[0]
+            span = max(abs(center) * 0.1, 0.05)
+            x_min = center - span
+            x_max = center + span
+            bandwidth = max(span / 3.0, 1e-3)
+            xs = [x_min + (x_max - x_min) * i / (points - 1) for i in range(points)]
+            norm = 1.0 / (bandwidth * math.sqrt(2.0 * math.pi))
+            ys = [
+                norm * math.exp(-0.5 * ((x_val - center) / bandwidth) ** 2)
+                for x_val in xs
+            ]
+            return xs, ys
+
+        sorted_vals = sorted(finite_vals)
+        x_min = sorted_vals[0]
+        x_max = sorted_vals[-1]
+        if math.isclose(x_min, x_max):
+            span = max(abs(x_min) * 0.1, 0.05)
+            x_min -= span
+            x_max += span
+
+        mean_val = sum(finite_vals) / n_vals
+        variance = sum((v - mean_val) ** 2 for v in finite_vals) / max(n_vals - 1, 1)
+        std_val = math.sqrt(max(variance, 1e-12))
+        q1 = sorted_vals[int((n_vals - 1) * 0.25)]
+        q3 = sorted_vals[int((n_vals - 1) * 0.75)]
+        iqr_sigma = (q3 - q1) / 1.34 if q3 > q1 else std_val
+        sigma = min(std_val, iqr_sigma) if iqr_sigma > 0 else std_val
+        bandwidth = 0.9 * sigma * (n_vals ** (-1.0 / 5.0))
+        if (not math.isfinite(bandwidth)) or bandwidth <= 0:
+            bandwidth = max((x_max - x_min) / 25.0, 1e-3)
+
+        xs = [x_min + (x_max - x_min) * i / (points - 1) for i in range(points)]
+        norm = 1.0 / (n_vals * bandwidth * math.sqrt(2.0 * math.pi))
+        ys = [
+            norm
+            * sum(
+                math.exp(-0.5 * ((x_val - sample) / bandwidth) ** 2)
+                for sample in finite_vals
+            )
+            for x_val in xs
+        ]
+        return xs, ys
+
+    def _add_kde_line_trace(
         fig: go.Figure,
         values: list[float],
         *,
@@ -326,23 +388,24 @@ def create_app() -> Dash:
         visible: bool,
         hover_label: str,
     ) -> None:
-        """Render a KDE-style distribution using a violin trace."""
-        if not values:
+        """Render a KDE distribution as a line trace."""
+        xs, ys = _kde_line_xy(values)
+        if not xs:
             return
         fig.add_trace(
-            go.Violin(
-                x=values,
-                orientation="h",
+            go.Scatter(
+                x=xs,
+                y=ys,
+                mode="lines",
                 name=name,
-                line_color=color,
-                fillcolor=color,
-                opacity=0.35,
+                line=dict(color=color, width=2),
+                fill="tozeroy",
+                opacity=0.4,
                 legendgroup=legendgroup,
                 showlegend=showlegend,
-                points=False,
-                box_visible=False,
-                meanline_visible=True,
-                hovertemplate="%{x:.3f}s<extra>" + hover_label + "</extra>",
+                hovertemplate="%{x:.3f}s · density %{y:.3f}<extra>"
+                + hover_label
+                + "</extra>",
                 visible=visible,
             )
         )
@@ -486,30 +549,17 @@ def create_app() -> Dash:
                         [
                             html.H4("Session Settings", style={"margin": "0 0 8px"}),
                             html.Pre(
-                                "Select subject(s) to show session settings.",
+                                "Select subject(s) to show settings and water summary.",
                                 id="session-settings-box",
                                 style={"margin": 0, "whiteSpace": "pre-wrap"},
                             ),
                         ],
                         className="overview-summary-card",
                     ),
-                    html.Div(
-                        [
-                            html.H4(
-                                "Cumulative Rewarded Water (by side)",
-                                style={"margin": "0 0 8px"},
-                            ),
-                            html.Pre(
-                                "Select subject(s) to show cumulative rewarded water.",
-                                id="water-side-box",
-                                style={"margin": 0, "whiteSpace": "pre-wrap"},
-                            ),
-                        ],
-                        className="overview-summary-card",
-                    ),
                 ],
-                className="overview-summary-grid",
+                className="overview-summary-stack",
             ),
+            _row("trial-count-time", "water-cumulative"),
         ],
         className="single-tab-pane",
     )
@@ -517,7 +567,7 @@ def create_app() -> Dash:
         [
             _row("init-line", "init-hist", "wait-delta-line", "wait-delta-hist"),
             _row("wait-floor-line", "wait-floor-hist", "iti-rolling", "iti-dist"),
-            _row("response-time", "trial-count-time"),
+            _row("response-time-line", "response-time"),
         ],
         className="single-tab-pane",
     )
@@ -812,9 +862,11 @@ def create_app() -> Dash:
         Output("wait-delta-hist", "figure"),
         Output("wait-floor-line", "figure"),
         Output("wait-floor-hist", "figure"),
+        Output("response-time-line", "figure"),
         Output("response-time", "figure"),
         Output("iti-dist", "figure"),
         Output("trial-count-time", "figure"),
+        Output("water-cumulative", "figure"),
         Output("iti-rolling", "figure"),
         Input("subjects-recent", "value"),
         Input("subjects-older", "value"),
@@ -837,7 +889,7 @@ def create_app() -> Dash:
             - ``session-date.date``
 
         Callback Outputs:
-            Fourteen figures for outcomes, psychometric/chronometric, performance,
+            Sixteen figures for outcomes, psychometric/chronometric, performance,
             initiation, post-go center dwell, wait-floor, response-time, session
             pacing, and ITI rolling-trend views.
 
@@ -850,13 +902,13 @@ def create_app() -> Dash:
                 ``None``. When set and multiple subjects are selected, each
                 additional subject resolves its session from this date.
         Returns:
-            A 14-item tuple of Plotly figures in callback output order.
+            A 16-item tuple of Plotly figures in callback output order.
 
         Side Effects:
             Reads cached session metrics and emits performance logs when enabled.
         """
         start = time.perf_counter()
-        n = 14
+        n = 16
         subjects = (subjects_recent or []) + (subjects_older or [])
 
         sessions_by_subject = {s: get_sessions(s) for s in subjects}
@@ -877,13 +929,16 @@ def create_app() -> Dash:
         fig_il, fig_ih = go.Figure(), go.Figure()
         fig_wdl, fig_wdh = go.Figure(), go.Figure()
         fig_wfl, fig_wfh = go.Figure(), go.Figure()
+        fig_rtl = go.Figure()
         fig_rt = go.Figure()
         fig_itid = go.Figure()
         fig_tct = go.Figure()
+        fig_wc = go.Figure()
         fig_itir = go.Figure()
         init_y_vals: list[float] = []
         wait_delta_y_vals: list[float] = []
         wait_floor_y_vals: list[float] = []
+        response_line_y_vals: list[float] = []
         wdl_combined_idx: list[int] = []
         wdl_split_idx: list[int] = []
         wdh_combined_idx: list[int] = []
@@ -902,9 +957,15 @@ def create_app() -> Dash:
         itir_combined_idx: list[int] = []
         itir_split_idx: list[int] = []
         itir_trace_count = 0
+        rtl_combined_idx: list[int] = []
+        rtl_split_idx: list[int] = []
+        rtl_trace_count = 0
         rt_combined_idx: list[int] = []
         rt_split_idx: list[int] = []
         rt_trace_count = 0
+        wc_combined_idx: list[int] = []
+        wc_split_idx: list[int] = []
+        wc_trace_count = 0
 
         # Collect outcome totals for multi-subject horizontal bars
         multi_outcome_data = []
@@ -1069,7 +1130,7 @@ def create_app() -> Dash:
                         )
                     )
                 else:
-                    _add_kde_trace(
+                    _add_kde_line_trace(
                         fig_ih,
                         sm["init_times"],
                         name=subj,
@@ -1237,7 +1298,7 @@ def create_app() -> Dash:
                         wdh_split_idx.append(wdh_trace_count)
                         wdh_trace_count += 1
                 else:
-                    _add_kde_trace(
+                    _add_kde_line_trace(
                         fig_wdh,
                         sm["wait_delta_times"],
                         name=subj,
@@ -1250,7 +1311,7 @@ def create_app() -> Dash:
                     wdh_combined_idx.append(wdh_trace_count)
                     wdh_trace_count += 1
                     if left_delta_times:
-                        _add_kde_trace(
+                        _add_kde_line_trace(
                             fig_wdh,
                             left_delta_times,
                             name="Left",
@@ -1263,7 +1324,7 @@ def create_app() -> Dash:
                         wdh_split_idx.append(wdh_trace_count)
                         wdh_trace_count += 1
                     if right_delta_times:
-                        _add_kde_trace(
+                        _add_kde_line_trace(
                             fig_wdh,
                             right_delta_times,
                             name="Right",
@@ -1428,7 +1489,7 @@ def create_app() -> Dash:
                         wfh_split_idx.append(wfh_trace_count)
                         wfh_trace_count += 1
                 else:
-                    _add_kde_trace(
+                    _add_kde_line_trace(
                         fig_wfh,
                         sm["wait_times"],
                         name=subj,
@@ -1441,7 +1502,7 @@ def create_app() -> Dash:
                     wfh_combined_idx.append(wfh_trace_count)
                     wfh_trace_count += 1
                     if wait_left_times:
-                        _add_kde_trace(
+                        _add_kde_line_trace(
                             fig_wfh,
                             wait_left_times,
                             name="Left",
@@ -1454,7 +1515,7 @@ def create_app() -> Dash:
                         wfh_split_idx.append(wfh_trace_count)
                         wfh_trace_count += 1
                     if wait_right_times:
-                        _add_kde_trace(
+                        _add_kde_line_trace(
                             fig_wfh,
                             wait_right_times,
                             name="Right",
@@ -1471,6 +1532,117 @@ def create_app() -> Dash:
             response_times = sm.get("response_times", [])
             response_left = sm.get("response_times_left", [])
             response_right = sm.get("response_times_right", [])
+            response_trial_nums = sm.get("response_trial_nums", [])
+            response_roll_x = sm.get("response_roll_x", [])
+            response_roll_y = sm.get("response_roll_y", [])
+            response_trial_nums_left = sm.get("response_trial_nums_left", [])
+            response_trial_nums_right = sm.get("response_trial_nums_right", [])
+            response_roll_left_x = sm.get("response_roll_left_x", [])
+            response_roll_left_y = sm.get("response_roll_left_y", [])
+            response_roll_right_x = sm.get("response_roll_right_x", [])
+            response_roll_right_y = sm.get("response_roll_right_y", [])
+
+            if response_trial_nums and response_times:
+                fig_rtl.add_trace(
+                    go.Scattergl(
+                        x=response_trial_nums,
+                        y=response_times,
+                        mode="markers",
+                        name=subj,
+                        showlegend=False,
+                        legendgroup=grp,
+                        marker=dict(color=c, size=3, opacity=0.4),
+                        hovertemplate="%{y:.3f}s" + ht_subj,
+                        visible=True,
+                    )
+                )
+                rtl_combined_idx.append(rtl_trace_count)
+                rtl_trace_count += 1
+                if response_roll_x and response_roll_y:
+                    fig_rtl.add_trace(
+                        go.Scatter(
+                            x=response_roll_x,
+                            y=response_roll_y,
+                            mode="lines",
+                            name=subj + " roll",
+                            showlegend=False,
+                            legendgroup=grp,
+                            line=dict(color=c, width=2),
+                            hovertemplate="%{y:.3f}s (roll)" + ht_subj,
+                            visible=True,
+                        )
+                    )
+                    rtl_combined_idx.append(rtl_trace_count)
+                    rtl_trace_count += 1
+                if response_left and response_trial_nums_left:
+                    fig_rtl.add_trace(
+                        go.Scattergl(
+                            x=response_trial_nums_left,
+                            y=response_left,
+                            mode="markers",
+                            name="Left",
+                            showlegend=i == 0,
+                            legendgroup="rt-left",
+                            marker=dict(color="royalblue", size=3, opacity=0.4),
+                            hovertemplate="%{y:.3f}s<extra>left</extra>",
+                            visible=False,
+                        )
+                    )
+                    rtl_split_idx.append(rtl_trace_count)
+                    rtl_trace_count += 1
+                if response_roll_left_x and response_roll_left_y:
+                    fig_rtl.add_trace(
+                        go.Scatter(
+                            x=response_roll_left_x,
+                            y=response_roll_left_y,
+                            mode="lines",
+                            name="Left roll",
+                            showlegend=i == 0,
+                            legendgroup="rt-left",
+                            line=dict(color="royalblue", width=2),
+                            hovertemplate="%{y:.3f}s<extra>left rolling</extra>",
+                            visible=False,
+                        )
+                    )
+                    rtl_split_idx.append(rtl_trace_count)
+                    rtl_trace_count += 1
+                if response_right and response_trial_nums_right:
+                    fig_rtl.add_trace(
+                        go.Scattergl(
+                            x=response_trial_nums_right,
+                            y=response_right,
+                            mode="markers",
+                            name="Right",
+                            showlegend=i == 0,
+                            legendgroup="rt-right",
+                            marker=dict(color="darkorange", size=3, opacity=0.4),
+                            hovertemplate="%{y:.3f}s<extra>right</extra>",
+                            visible=False,
+                        )
+                    )
+                    rtl_split_idx.append(rtl_trace_count)
+                    rtl_trace_count += 1
+                if response_roll_right_x and response_roll_right_y:
+                    fig_rtl.add_trace(
+                        go.Scatter(
+                            x=response_roll_right_x,
+                            y=response_roll_right_y,
+                            mode="lines",
+                            name="Right roll",
+                            showlegend=i == 0,
+                            legendgroup="rt-right",
+                            line=dict(color="darkorange", width=2),
+                            hovertemplate="%{y:.3f}s<extra>right rolling</extra>",
+                            visible=False,
+                        )
+                    )
+                    rtl_split_idx.append(rtl_trace_count)
+                    rtl_trace_count += 1
+                response_line_y_vals.extend(response_times)
+                response_line_y_vals.extend(response_roll_y)
+                response_line_y_vals.extend(response_roll_left_y)
+                response_line_y_vals.extend(response_roll_right_y)
+
             if multi_col:
                 if response_times:
                     fig_rt.add_trace(
@@ -1521,7 +1693,7 @@ def create_app() -> Dash:
                     rt_trace_count += 1
             else:
                 if response_times:
-                    _add_kde_trace(
+                    _add_kde_line_trace(
                         fig_rt,
                         response_times,
                         name="All choices",
@@ -1534,7 +1706,7 @@ def create_app() -> Dash:
                     rt_combined_idx.append(rt_trace_count)
                     rt_trace_count += 1
                 if response_left:
-                    _add_kde_trace(
+                    _add_kde_line_trace(
                         fig_rt,
                         response_left,
                         name="Left",
@@ -1547,7 +1719,7 @@ def create_app() -> Dash:
                     rt_split_idx.append(rt_trace_count)
                     rt_trace_count += 1
                 if response_right:
-                    _add_kde_trace(
+                    _add_kde_line_trace(
                         fig_rt,
                         response_right,
                         name="Right",
@@ -1618,7 +1790,7 @@ def create_app() -> Dash:
                             itid_split_idx.append(itid_trace_count)
                             itid_trace_count += 1
                 else:
-                    _add_kde_trace(
+                    _add_kde_line_trace(
                         fig_itid,
                         iti_vals,
                         name=subj,
@@ -1637,7 +1809,7 @@ def create_app() -> Dash:
                         ("After No Choice", iti_after_no_choice, "#6b7280"),
                     ]:
                         if vals:
-                            _add_kde_trace(
+                            _add_kde_line_trace(
                                 fig_itid,
                                 vals,
                                 name=label,
@@ -1678,6 +1850,59 @@ def create_app() -> Dash:
                             hovertemplate="%{y:.0f}<extra></extra>",
                         )
                     )
+
+            water_cum_x = sm.get("water_cum_x", [])
+            water_cum_total = sm.get("water_cum_total_ul", [])
+            water_cum_left = sm.get("water_cum_left_ul", [])
+            water_cum_right = sm.get("water_cum_right_ul", [])
+            if water_cum_x and water_cum_total:
+                fig_wc.add_trace(
+                    go.Scatter(
+                        x=water_cum_x,
+                        y=water_cum_total,
+                        mode="lines",
+                        name=subj if multi_col else "Total",
+                        showlegend=multi_col,
+                        legendgroup=grp,
+                        line=dict(color=c, width=2),
+                        hovertemplate="%{y:.1f} µL<extra>" + subj + "</extra>",
+                        visible=True,
+                    )
+                )
+                wc_combined_idx.append(wc_trace_count)
+                wc_trace_count += 1
+                if water_cum_left:
+                    fig_wc.add_trace(
+                        go.Scatter(
+                            x=water_cum_x,
+                            y=water_cum_left,
+                            mode="lines",
+                            name="Left",
+                            showlegend=i == 0,
+                            legendgroup="water-left",
+                            line=dict(color="royalblue", width=2),
+                            hovertemplate="%{y:.1f} µL<extra>left</extra>",
+                            visible=False,
+                        )
+                    )
+                    wc_split_idx.append(wc_trace_count)
+                    wc_trace_count += 1
+                if water_cum_right:
+                    fig_wc.add_trace(
+                        go.Scatter(
+                            x=water_cum_x,
+                            y=water_cum_right,
+                            mode="lines",
+                            name="Right",
+                            showlegend=i == 0,
+                            legendgroup="water-right",
+                            line=dict(color="darkorange", width=2),
+                            hovertemplate="%{y:.1f} µL<extra>right</extra>",
+                            visible=False,
+                        )
+                    )
+                    wc_split_idx.append(wc_trace_count)
+                    wc_trace_count += 1
 
             # --- Row 5: ITI rolling trend (25-trial median) ---
             iti_roll_x = sm.get("iti_roll_x", [])
@@ -1764,6 +1989,9 @@ def create_app() -> Dash:
         wait_delta_y_range = _robust_y_range(wait_delta_y_vals, pct=_TIMING_Y_CLIP_PCT)
         wait_floor_y_range = _robust_y_range(
             wait_floor_y_vals, pct=_TIMING_Y_CLIP_PCT, lower_bound=0
+        )
+        response_line_y_range = _robust_y_range(
+            response_line_y_vals, pct=_TIMING_Y_CLIP_PCT, lower_bound=0
         )
 
         # --- Layouts ---
@@ -1864,11 +2092,11 @@ def create_app() -> Dash:
         )
 
         if multi:
-            _layout(fig_ih, title="Initiation Distribution", yaxis_title="time (s)")
+            _layout(fig_ih, title="Initiation Dist", yaxis_title="time (s)")
         else:
             _layout(
                 fig_ih,
-                title="Initiation KDE",
+                title="Initiation Dist",
                 xaxis_title="time (s)",
                 yaxis_title="density",
             )
@@ -1887,14 +2115,14 @@ def create_app() -> Dash:
         if multi:
             _layout(
                 fig_wdh,
-                title="Center Dwell Distribution",
+                title="Center Dwell Dist",
                 yaxis_title="time (s)",
                 boxmode="group",
             )
         else:
             _layout(
                 fig_wdh,
-                title="Center Dwell KDE",
+                title="Center Dwell Dist",
                 xaxis_title="time (s)",
                 yaxis_title="density",
             )
@@ -1914,14 +2142,14 @@ def create_app() -> Dash:
         if multi:
             _layout(
                 fig_wfh,
-                title="Minimum Wait Distribution",
+                title="Minimum Wait Dist",
                 yaxis_title="time (s)",
                 boxmode="group",
             )
         else:
             _layout(
                 fig_wfh,
-                title="Minimum Wait KDE",
+                title="Minimum Wait Dist",
                 xaxis_title="time (s)",
                 yaxis_title="density",
             )
@@ -1930,13 +2158,23 @@ def create_app() -> Dash:
         )
 
         # Row 4
+        _layout(
+            fig_rtl,
+            title="Response Time Rolling",
+            xaxis_title="trial number",
+            yaxis_title="time (s)",
+            yaxis_range=response_line_y_range,
+        )
+        _apply_split_toggle(
+            fig_rtl, rtl_combined_idx, rtl_split_idx, rtl_trace_count, "Choice"
+        )
         _apply_split_toggle(
             fig_rt, rt_combined_idx, rt_split_idx, rt_trace_count, "Choice"
         )
         if multi_col:
             _layout(
                 fig_rt,
-                title="Response Time",
+                title="Response Time Dist",
                 xaxis_title="subject",
                 yaxis_title="time (s)",
                 boxmode="group",
@@ -1944,21 +2182,21 @@ def create_app() -> Dash:
         else:
             _layout(
                 fig_rt,
-                title="Response Time KDE",
+                title="Response Time Dist",
                 xaxis_title="time (s)",
                 yaxis_title="density",
             )
         if multi_col:
             _layout(
                 fig_itid,
-                title="ITI Distribution",
+                title="ITI Dist",
                 yaxis_title="time (s)",
                 boxmode="group",
             )
         else:
             _layout(
                 fig_itid,
-                title="ITI KDE",
+                title="ITI Dist",
                 xaxis_title="time (s)",
                 yaxis_title="density",
             )
@@ -1970,6 +2208,15 @@ def create_app() -> Dash:
             title="Trial Counts",
             xaxis_title="minutes from first trial",
             yaxis_title="count",
+        )
+        _layout(
+            fig_wc,
+            title="Cumulative Water",
+            xaxis_title="trial number",
+            yaxis_title="water (µL)",
+        )
+        _apply_split_toggle(
+            fig_wc, wc_combined_idx, wc_split_idx, wc_trace_count, "Side"
         )
         _layout(
             fig_itir,
@@ -1993,15 +2240,16 @@ def create_app() -> Dash:
             fig_wdh,
             fig_wfl,
             fig_wfh,
+            fig_rtl,
             fig_rt,
             fig_itid,
             fig_tct,
+            fig_wc,
             fig_itir,
         )
 
     @app.callback(
         Output("session-settings-box", "children"),
-        Output("water-side-box", "children"),
         Input("subjects-recent", "value"),
         Input("subjects-older", "value"),
         Input("session-time", "value"),
@@ -2011,19 +2259,15 @@ def create_app() -> Dash:
     def _update_overview_boxes(
         subjects_recent, subjects_older, session_name, n_intervals, session_date
     ):
-        """Populate overview text boxes with session settings and water totals."""
+        """Populate overview settings box with compact session and water details."""
         subjects = (subjects_recent or []) + (subjects_older or [])
         sessions_by_subject = {s: get_sessions(s) for s in subjects}
         valid_subjects = [s for s in subjects if sessions_by_subject.get(s)]
 
         if not valid_subjects:
-            return (
-                "Select subject(s) to show session settings.",
-                "Select subject(s) to show cumulative rewarded water.",
-            )
+            return "Select subject(s) to show settings."
 
         settings_lines: list[str] = []
-        water_lines: list[str] = []
         for i, subj in enumerate(valid_subjects):
             sessions_list = sessions_by_subject[subj]
             if i == 0 and session_name:
@@ -2044,24 +2288,20 @@ def create_app() -> Dash:
                 settings_lines.append(f"{subj} ({ses})")
                 settings_lines.extend(f"  {line}" for line in subj_settings)
 
-            water_totals = sm.get("water_side_totals", [])
+            water_totals = sm.get("water_side_totals_ul", [])
             if len(water_totals) >= 2:
-                left = int(water_totals[0])
-                right = int(water_totals[1])
-                total = int(water_totals[2]) if len(water_totals) > 2 else left + right
-                water_lines.append(f"{subj}: left={left}, right={right}, total={total}")
+                left = float(water_totals[0])
+                right = float(water_totals[1])
+                total = (
+                    float(water_totals[2]) if len(water_totals) > 2 else left + right
+                )
+                settings_lines.append(
+                    f"  water (µL): total {total:.1f} | L {left:.1f} | R {right:.1f}"
+                )
 
-        settings_txt = (
-            "\n".join(settings_lines)
-            if settings_lines
-            else "Session settings unavailable for current selection."
-        )
-        water_txt = (
-            "\n".join(water_lines)
-            if water_lines
-            else "Water totals unavailable for current selection."
-        )
-        return settings_txt, water_txt
+        if not settings_lines:
+            return "Settings unavailable for current selection."
+        return "\n".join(settings_lines)
 
     # ── Multi-session plots ──────────────────────────────────────────────────
     @app.callback(
