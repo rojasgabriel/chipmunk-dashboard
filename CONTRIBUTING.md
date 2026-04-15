@@ -187,6 +187,26 @@ on every pull request targeting those branches. One job with seven sequential st
 
 Five test files plus browser E2E checks. Coverage is still enforced by CI.
 
+### Recommended local command sets
+
+Use one of these two command sets depending on where you are in the edit cycle:
+
+```bash
+# Quick loop while iterating
+uv run ruff check .
+uv run pytest -q tests/test_cli.py
+```
+
+```bash
+# Pre-PR/full checks (mirrors CI quality gates)
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90
+
+# Optional locally; required in CI
+RUN_PLAYWRIGHT=1 uv run pytest tests/test_playwright_ui.py
+```
+
 #### `tests/test_data.py` — unit tests for `data.py`
 
 All of `pandas`, `numpy`, `labdata`, and `chipmunk` are replaced with lightweight
@@ -554,25 +574,35 @@ Hot-reload will pick up any further edits automatically.
 
 ## Submitting changes
 
-1. **Fork** the repository and create a feature branch:
+1. **Branch from `dev`** and create a focused feature branch:
 
    ```bash
+   git checkout dev
+   git pull --ff-only
    git checkout -b my-feature
    ```
 
 2. **Make your changes**, keeping `data.py` and `app.py` concerns separate.
 
-3. **Run all quality checks locally** before pushing:
+3. **Confirm your branch is based on `dev`**:
 
    ```bash
-   uv run pre-commit run --all-files
-   uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90
+   git merge-base --is-ancestor dev HEAD && echo "branch is based on dev"
    ```
 
-4. **Test manually** by running the dashboard with `--debug` and verifying the
+4. **Run all quality checks locally** before pushing:
+
+   ```bash
+   uv run ruff check .
+   uv run ruff format --check .
+   uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90
+   RUN_PLAYWRIGHT=1 uv run pytest tests/test_playwright_ui.py
+   ```
+
+5. **Test manually** by running the dashboard with `--debug` and verifying the
    affected views.
 
-5. **Open a pull request** against `dev` with a clear description of what
+6. **Open a pull request** against `dev` with a clear description of what
    changed and why.
 
 For questions or to discuss larger changes before writing code, open a GitHub
