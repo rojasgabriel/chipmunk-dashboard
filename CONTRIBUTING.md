@@ -1,8 +1,7 @@
 # Contributing to chipmunk-dashboard
 
-This guide covers everything you need to understand and work on the project:
-how the code is organized, how dependencies and quality gates work, what the
-tests do, and how to add new features.
+This guide explains how the project is organized, how to set it up locally,
+which checks gate changes, and how to add or modify dashboard features.
 
 ---
 
@@ -33,9 +32,8 @@ chipmunk-dashboard/
 │   ├── test_app.py          # Unit tests for app.py callbacks
 │   ├── test_cli.py          # Unit tests for the CLI
 │   ├── test_data.py         # Unit tests for data.py
-│   └── test_integration.py  # Integration tests using real third-party libraries
-├── notebooks/
-│   └── ingest_subjects.ipynb   # One-off data exploration / ingestion helpers
+│   ├── test_integration.py  # Integration tests using real third-party libraries
+│   └── test_playwright_ui.py # Browser smoke + screenshot regression tests
 ├── .github/workflows/ci.yml    # GitHub Actions CI pipeline
 ├── .pre-commit-config.yaml     # Linting / formatting hooks
 ├── pyproject.toml       # Build metadata and dependency declarations
@@ -135,8 +133,8 @@ consistent state.
 
 Dependabot watches `uv.lock` and opens PRs automatically when new versions of
 dependencies are released. Because CI runs on every PR, those upgrades are tested
-before they can reach `main`. If a dep upgrade breaks the test suite, CI fails and
-you see it before merging.
+before they can be merged. If a dep upgrade breaks the test suite, CI fails and
+you see it before review/merge.
 
 ---
 
@@ -169,7 +167,7 @@ in the existing modules.
 ### 2. GitHub Actions CI (on every push and PR)
 
 Defined in `.github/workflows/ci.yml`. Runs on every push to `main` or `dev`, and
-on every pull request targeting those branches. One job with five sequential steps:
+on every pull request targeting those branches. One job with eight sequential steps:
 
 | Step | Command | Purpose |
 |------|---------|---------|
@@ -179,10 +177,32 @@ on every pull request targeting those branches. One job with five sequential ste
 | Lint | `uv run ruff check .` | Same check as pre-commit, catches anything that slipped through |
 | Format | `uv run ruff format --check .` | Verifies formatting without modifying files |
 | Tests | `uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90` | Runs the full test suite with coverage; CI fails if coverage drops below 90% |
+| Install Playwright browser | `uv run playwright install --with-deps chromium` | Installs Chromium + OS dependencies for browser tests |
+| Playwright UI tests | `RUN_PLAYWRIGHT=1 uv run pytest tests/test_playwright_ui.py` | Runs browser-level smoke and screenshot-regression checks |
 
 ### 3. The test suite
 
-Four test files, 89 tests total. Currently at 99.8% coverage.
+Five test files plus browser E2E checks. Coverage is still enforced by CI.
+
+### Recommended local command sets
+
+Use one of these two command sets depending on where you are in the edit cycle:
+
+```bash
+# Quick loop while iterating
+uv run ruff check .
+uv run pytest -q tests/test_cli.py
+```
+
+```bash
+# Pre-PR/full checks (mirrors CI quality gates)
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90
+
+# Optional locally; required in CI
+RUN_PLAYWRIGHT=1 uv run pytest tests/test_playwright_ui.py
+```
 
 #### `tests/test_data.py` — unit tests for `data.py`
 
@@ -261,6 +281,26 @@ filtering, zero-choice side bias producing NaN, and `None` reaction times.
 Tests argument parsing, default values, that `create_app().run()` is called
 with the right host/port/debug, and that `--no-open` suppresses the browser.
 
+#### `tests/test_playwright_ui.py` — browser smoke + screenshot regression
+
+Runs real Chromium against a mocked-data dashboard server to verify end-user
+interaction flows and coarse layout regressions:
+
+- Subject selection and callback-driven figure rendering
+- Single-session tab navigation
+- Split-toggle visibility/interaction paths
+- Screenshot hash regression checks for Overview and Timing tab states
+
+This module is intentionally gated:
+
+```bash
+# Browser tests are opt-in locally
+RUN_PLAYWRIGHT=1 uv run pytest tests/test_playwright_ui.py
+
+# Regenerate screenshot hash baselines when UI changes are intentional
+RUN_PLAYWRIGHT=1 UPDATE_PLAYWRIGHT_HASHES=1 uv run pytest tests/test_playwright_ui.py
+```
+
 ---
 
 ## Running the dashboard locally
@@ -289,7 +329,7 @@ runtime behavior without modifying source code.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CHIPMUNK_CACHE_TTL_SECONDS` | `1800` | Lifetime (seconds) for each TTL time bucket in `data.py`. Reduce for faster data refresh during development. |
-| `CHIPMUNK_PROFILE` | `0` | Set to `1` to emit per-call timing logs (milliseconds) for data-layer and callback functions. |
+| `CHIPMUNK_PROFILE` | `0` | Set to `1` to emit per-call timing logs (milliseconds) for functions that call `_perf_log(...)`. |
 | `CHIPMUNK_PREWARM` | `1` | Set to `0` to disable background cache prewarming of multi-session metrics. Prewarming is triggered when subjects are selected, not at server startup. |
 
 Example:
@@ -358,7 +398,7 @@ This walkthrough adds a **cumulative rewards** line plot to the Single Session
 section. It demonstrates every file you need to touch and why. The same pattern
 applies to the Multi Session section — differences are noted inline.
 
-The four implementation steps are always:
+The four implementation steps are always the same, followed by verification:
 1. Compute the metric in `data.py`
 2. Register a new graph component in the layout (`app.py`)
 3. Add the matching `Output` to the callback decorator (`app.py`)
@@ -531,25 +571,35 @@ Hot-reload will pick up any further edits automatically.
 
 ## Submitting changes
 
-1. **Fork** the repository and create a feature branch:
+1. **Branch from `dev`** and create a focused feature branch:
 
    ```bash
+   git checkout dev
+   git pull --ff-only
    git checkout -b my-feature
    ```
 
 2. **Make your changes**, keeping `data.py` and `app.py` concerns separate.
 
-3. **Run all quality checks locally** before pushing:
+3. **Confirm your branch is based on `dev`**:
 
    ```bash
-   uv run pre-commit run --all-files
-   uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90
+   git merge-base --is-ancestor dev HEAD && echo "branch is based on dev"
    ```
 
-4. **Test manually** by running the dashboard with `--debug` and verifying the
+4. **Run all quality checks locally** before pushing:
+
+   ```bash
+   uv run ruff check .
+   uv run ruff format --check .
+   uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90
+   RUN_PLAYWRIGHT=1 uv run pytest tests/test_playwright_ui.py
+   ```
+
+5. **Test manually** by running the dashboard with `--debug` and verifying the
    affected views.
 
-5. **Open a pull request** against `dev` with a clear description of what
+6. **Open a pull request** against `dev` with a clear description of what
    changed and why.
 
 For questions or to discuss larger changes before writing code, open a GitHub
