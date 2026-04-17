@@ -12,7 +12,8 @@ dependencies = [
     "pandas",
     "numpy",
     "labdata>=0.0.22",
-    "setuptools<81",
+    # Newer setuptools releases break the real labdata/datajoint import path.
+    "setuptools==79.0.1",
 ]
 
 [project.scripts]
