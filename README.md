@@ -14,11 +14,24 @@ A Plotly Dash interface for visualizing mouse behavioral data from the `chipmunk
 git clone https://github.com/rojasgabriel/chipmunk-dashboard.git
 cd chipmunk-dashboard
 
-# Installs dependencies on a venv initialized with `uv run ...`
-uv sync
+# Install runtime + development dependencies (matches local dev and CI toolchain)
+uv sync --all-groups
+```
 
-# For development, install the dev dependency group as well
-uv sync --group dev
+## Development verification
+
+```bash
+# Quick local loop
+uv run ruff check .
+uv run pytest -q tests/test_cli.py
+
+# Pre-PR / CI-parity checks (minus browser install)
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90
+
+# Optional browser UI regression checks (opt-in)
+RUN_PLAYWRIGHT=1 uv run pytest tests/test_playwright_ui.py
 ```
 
 ## Running the Dashboard
