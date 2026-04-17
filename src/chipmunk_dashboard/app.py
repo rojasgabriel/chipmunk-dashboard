@@ -2390,13 +2390,15 @@ def create_app() -> Dash:
             )
             if not ms:
                 continue
-            ht = "%{y:.2f}<extra>" + subj + "</extra>"
+            session_dates = ms.get("session_dates", [])
+            ht = "%{y:.2f}<br>session date: %{customdata}<extra>" + subj + "</extra>"
             mk = dict(color=c, size=7)
             ln = dict(color=c, width=2)
 
             fig_perf.add_trace(
                 go.Scatter(
                     x=ms["x"],
+                    customdata=session_dates,
                     y=ms["perf_easy"],
                     mode="lines+markers",
                     name=subj,
@@ -2410,6 +2412,7 @@ def create_app() -> Dash:
             fig_ew.add_trace(
                 go.Scatter(
                     x=ms["x"],
+                    customdata=session_dates,
                     y=ms["ew_rate"],
                     mode="lines+markers",
                     name=subj,
@@ -2423,6 +2426,7 @@ def create_app() -> Dash:
             fig_sb.add_trace(
                 go.Scatter(
                     x=ms["x"],
+                    customdata=session_dates,
                     y=ms["side_bias"],
                     mode="lines+markers",
                     name=subj,
@@ -2436,6 +2440,7 @@ def create_app() -> Dash:
             fig_it.add_trace(
                 go.Scatter(
                     x=ms["x"],
+                    customdata=session_dates,
                     y=ms["median_init"],
                     mode="lines+markers",
                     name=subj,
@@ -2443,12 +2448,15 @@ def create_app() -> Dash:
                     showlegend=False,
                     marker=mk,
                     line=dict(color=c),
-                    hovertemplate="%{y:.3f}s<extra>" + subj + "</extra>",
+                    hovertemplate="%{y:.3f}s<br>session date: %{customdata}<extra>"
+                    + subj
+                    + "</extra>",
                 )
             )
             fig_mrt.add_trace(
                 go.Scatter(
                     x=ms["x"],
+                    customdata=session_dates,
                     y=ms["median_rt"],
                     mode="lines+markers",
                     name=subj,
@@ -2456,12 +2464,15 @@ def create_app() -> Dash:
                     showlegend=False,
                     marker=mk,
                     line=dict(color=c),
-                    hovertemplate="%{y:.3f}s<extra>" + subj + "</extra>",
+                    hovertemplate="%{y:.3f}s<br>session date: %{customdata}<extra>"
+                    + subj
+                    + "</extra>",
                 )
             )
             fig_mwt.add_trace(
                 go.Scatter(
                     x=ms["x"],
+                    customdata=session_dates,
                     y=ms["median_wait"],
                     mode="lines+markers",
                     name=subj,
@@ -2469,12 +2480,15 @@ def create_app() -> Dash:
                     showlegend=False,
                     marker=mk,
                     line=dict(color=c),
-                    hovertemplate="%{y:.3f}s<extra>" + subj + "</extra>",
+                    hovertemplate="%{y:.3f}s<br>session date: %{customdata}<extra>"
+                    + subj
+                    + "</extra>",
                 )
             )
             fig_tc.add_trace(
                 go.Scatter(
                     x=ms["x"],
+                    customdata=session_dates,
                     y=ms["n_with_choice"],
                     mode="lines+markers",
                     name=subj,
@@ -2482,12 +2496,15 @@ def create_app() -> Dash:
                     showlegend=False,
                     line=dict(color=c),
                     marker=mk,
-                    hovertemplate="%{y}<extra>" + subj + "</extra>",
+                    hovertemplate="%{y}<br>session date: %{customdata}<extra>"
+                    + subj
+                    + "</extra>",
                 )
             )
             fig_wa.add_trace(
                 go.Scatter(
                     x=ms["x"],
+                    customdata=session_dates,
                     y=ms["water"],
                     mode="lines+markers",
                     name=subj,
@@ -2495,7 +2512,9 @@ def create_app() -> Dash:
                     showlegend=False,
                     marker=mk,
                     line=dict(color=c),
-                    hovertemplate="%{y:.2f} mL<extra>" + subj + "</extra>",
+                    hovertemplate="%{y:.2f} mL<br>session date: %{customdata}<extra>"
+                    + subj
+                    + "</extra>",
                 )
             )
 
