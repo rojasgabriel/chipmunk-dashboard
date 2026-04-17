@@ -11,7 +11,7 @@ dependencies = [
     "plotly<6",
     "pandas",
     "numpy",
-    "labdata>=0.0.22",
+    "labdata>=0.1.7",
     "setuptools<81",
 ]
 
