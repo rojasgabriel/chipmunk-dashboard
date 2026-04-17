@@ -312,6 +312,7 @@ def _make_multisession_metrics() -> dict:
     rng = np.random.default_rng(42)
     return dict(
         x=[float(i - 9) for i in range(n)],
+        session_dates=[f"2026-01-{i + 1:02d}" for i in range(n)],
         perf_easy=rng.uniform(0.5, 0.9, n).tolist(),
         ew_rate=rng.uniform(0.0, 0.3, n).tolist(),
         n_with_choice=[int(v) for v in rng.integers(50, 120, n)],
@@ -868,6 +869,7 @@ class TestMultisessionMetricsWithRealLibs(unittest.TestCase):
         self.assertIsNotNone(result)
         expected_keys = {
             "x",
+            "session_dates",
             "perf_easy",
             "ew_rate",
             "n_with_choice",
@@ -1048,6 +1050,17 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         # Performance figure should have one Scatter trace
         self.assertEqual(len(figures[0].data), 1)
         self.assertIsInstance(figures[0].data[0], go.Scatter)
+
+    def test_update_multi_hover_shows_session_date(self):
+        app = self.appmod.create_app()
+        update_multi = app.callbacks["_update_multi"]
+        ms = _make_multisession_metrics()
+        with mock.patch.object(self.appmod, "multisession_metrics", return_value=ms):
+            figures = update_multi(["subject-a"], [], 10, "2026-01-10", [], 3, 0)
+
+        perf_trace = figures[0].data[0]
+        self.assertEqual(list(perf_trace.customdata), ms["session_dates"])
+        self.assertIn("session date: %{customdata}", perf_trace.hovertemplate)
 
     def test_update_multi_smooth_enabled_still_returns_eight_figures(self):
         app = self.appmod.create_app()

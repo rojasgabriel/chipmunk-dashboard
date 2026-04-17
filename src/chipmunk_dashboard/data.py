@@ -1116,6 +1116,12 @@ def multisession_metrics(
     initiation_values = d["initiation_times"].tolist()
     reaction_values = d["reaction_times"].tolist()
     session_names = d["session_name"].tolist()
+    session_dates = [
+        f"{name[:4]}-{name[4:6]}-{name[6:8]}"
+        if isinstance(name, str) and len(name) >= 8
+        else str(name)
+        for name in session_names
+    ]
 
     ew_rate: list[float] = []
     side_bias: list[float] = []
@@ -1184,6 +1190,7 @@ def multisession_metrics(
             out[k] = np.asarray(v).tolist()
 
     out["x"] = [float(x) for x in x_axis]
+    out["session_dates"] = session_dates
     _perf_log(
         "multisession_metrics",
         start,
