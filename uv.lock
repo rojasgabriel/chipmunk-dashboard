@@ -339,7 +339,7 @@ requires-dist = [
     { name = "labdata", specifier = ">=0.0.22" },
     { name = "numpy" },
     { name = "pandas" },
-    { name = "plotly", specifier = "<6" },
+    { name = "plotly", specifier = "<7" },
     { name = "setuptools", specifier = "==79.0.1" },
 ]
 
