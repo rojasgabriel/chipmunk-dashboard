@@ -2377,9 +2377,12 @@ def create_app() -> Dash:
             grp = subj
 
             # Anchor Handling:
-            # - We use 'session_date' (YYYY-MM-DD string) as the anchor for EVERY subject.
-            # - This aligns "0" to that date for all subjects.
-            # - If date is None (startup), session_date usually defaults to latest, but we handle None.
+            # - We use 'session_date' (YYYY-MM-DD string) as the upper-date filter
+            #   for EVERY subject.
+            # - Each series still plots the true session datetime on the x-axis so
+            #   multiple sessions from one day remain visually distinct.
+            # - If date is None (startup), session_date usually defaults to latest,
+            #   but we handle None.
 
             ms = multisession_metrics(
                 subj,
@@ -2520,11 +2523,11 @@ def create_app() -> Dash:
 
         _ref_line = dict(line_dash="dash", line_color="grey", line_width=1)
 
-        _ms = dict(dtick=5, showgrid=False, zeroline=False)
+        _ms = dict(type="date", showgrid=False, zeroline=False)
         _layout(
             fig_perf,
             title="Performance (easy)",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="performance",
             yaxis_range=[0.3, 1],
             xaxis=_ms,
@@ -2534,7 +2537,7 @@ def create_app() -> Dash:
         _layout(
             fig_ew,
             title="E.W. Rate",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="e.w. rate",
             yaxis_range=[0, 1],
             xaxis=_ms,
@@ -2552,7 +2555,7 @@ def create_app() -> Dash:
         _layout(
             fig_sb,
             title="Bias Index",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="bias (R - L)",
             yaxis_range=[-0.6, 0.6],
             xaxis=_ms,
@@ -2562,35 +2565,35 @@ def create_app() -> Dash:
         _layout(
             fig_it,
             title="Median Initiation Time",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="time (s)",
             xaxis=_ms,
         )
         _layout(
             fig_mrt,
             title="Median Response Time",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="time (s)",
             xaxis=_ms,
         )
         _layout(
             fig_mwt,
             title="Median Wait Time",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="time (s)",
             xaxis=_ms,
         )
         _layout(
             fig_tc,
             title="Trials with Choice",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="trials",
             xaxis=_ms,
         )
         _layout(
             fig_wa,
             title="Water Earned",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="volume (mL)",
             xaxis=_ms,
         )

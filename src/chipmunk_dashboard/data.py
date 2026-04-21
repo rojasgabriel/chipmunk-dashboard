@@ -1073,10 +1073,18 @@ def multisession_metrics(
 
     df = df.sort_values("session_name")
 
-    # Parse session dates for filtering
-    df["date"] = pd.to_datetime(
-        df["session_name"].str.slice(0, 8), format="%Y%m%d", errors="coerce"
+    # Parse full session datetimes so same-day sessions keep distinct x positions.
+    df["session_dt"] = pd.to_datetime(
+        df["session_name"], format="%Y%m%d_%H%M%S", errors="coerce"
     )
+    missing_dt = df["session_dt"].isna()
+    if missing_dt.any():
+        df.loc[missing_dt, "session_dt"] = pd.to_datetime(
+            df.loc[missing_dt, "session_name"].astype(str).str.slice(0, 8),
+            format="%Y%m%d",
+            errors="coerce",
+        )
+    df["date"] = df["session_dt"].dt.normalize()
 
     # Filter by date if provided
     if start_date:
@@ -1084,9 +1092,9 @@ def multisession_metrics(
         # Keep sessions <= start_date
         df = df[df["date"] <= anchor_dt]
     else:
-        # If no date provided, use the latest session date of this subject as anchor
+        # If no date provided, use the latest session timestamp of this subject.
         if not df.empty:
-            anchor_dt = df["date"].iloc[-1]
+            anchor_dt = df["session_dt"].iloc[-1]
         else:  # pragma: no cover — df can't be empty here (already checked above)
             _perf_log("multisession_metrics", start, subject=subject, sessions=0)
             return None
@@ -1099,28 +1107,34 @@ def multisession_metrics(
     wait_medians = get_wait_medians_for_sessions(subject, d_session_names)
     water_by_session = get_subject_water(subject)
 
-    # Calculate X-axis (Days relative to anchor_dt)
-    # This aligns 0 to the shared anchor date (or this subject's latest date if none shared)
     try:
-        anchor_ts = pd.Timestamp(anchor_dt)
         x_axis = [
-            float((pd.Timestamp(v) - anchor_ts).days) if pd.notna(v) else float("nan")
-            for v in d["date"].tolist()
+            pd.Timestamp(v).isoformat(sep=" ")
+            if pd.notna(v)
+            else pd.Timestamp(d["date"].iloc[i]).isoformat(sep=" ")
+            for i, v in enumerate(d["session_dt"].tolist())
         ]
-    except (
-        Exception
-    ):  # pragma: no cover — defensive fallback for unexpected timestamp types
-        x_axis = [float(i) for i in range(-len(d) + 1, 1)]
+    except Exception:  # pragma: no cover — defensive fallback for unexpected types
+        x_axis = [
+            pd.Timestamp(v).isoformat(sep=" ") if pd.notna(v) else str(name)
+            for v, name in zip(
+                d["date"].tolist(), d["session_name"].tolist(), strict=False
+            )
+        ]
 
     response_values = d["response_values"].tolist()
     initiation_values = d["initiation_times"].tolist()
     reaction_values = d["reaction_times"].tolist()
     session_names = d["session_name"].tolist()
     session_dates = [
-        f"{name[:4]}-{name[4:6]}-{name[6:8]}"
-        if isinstance(name, str) and len(name) >= 8
-        else str(name)
-        for name in session_names
+        pd.Timestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+        if pd.notna(ts)
+        else (
+            f"{name[:4]}-{name[4:6]}-{name[6:8]}"
+            if isinstance(name, str) and len(name) >= 8
+            else str(name)
+        )
+        for ts, name in zip(d["session_dt"].tolist(), session_names, strict=False)
     ]
 
     ew_rate: list[float] = []
@@ -1172,7 +1186,7 @@ def multisession_metrics(
         water=np.array(water),
     )
 
-    out: dict[str, list[float]] = {}
+    out: dict[str, list[Any]] = {}
     if smooth and smooth_window > 1:
         # Simple moving average, handling NaNs
         # We can use pandas rolling on a temporary series for each metric
@@ -1189,7 +1203,7 @@ def multisession_metrics(
         for k, v in res.items():
             out[k] = np.asarray(v).tolist()
 
-    out["x"] = [float(x) for x in x_axis]
+    out["x"] = x_axis
     out["session_dates"] = session_dates
     _perf_log(
         "multisession_metrics",

@@ -311,8 +311,8 @@ def _make_multisession_metrics() -> dict:
     n = 10
     rng = np.random.default_rng(42)
     return dict(
-        x=[float(i - 9) for i in range(n)],
-        session_dates=[f"2026-01-{i + 1:02d}" for i in range(n)],
+        x=[f"2026-01-{i + 1:02d} 12:00:00" for i in range(n)],
+        session_dates=[f"2026-01-{i + 1:02d} 12:00:00" for i in range(n)],
         perf_easy=rng.uniform(0.5, 0.9, n).tolist(),
         ew_rate=rng.uniform(0.0, 0.3, n).tolist(),
         n_with_choice=[int(v) for v in rng.integers(50, 120, n)],
@@ -1061,6 +1061,9 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         perf_trace = figures[0].data[0]
         self.assertEqual(list(perf_trace.customdata), ms["session_dates"])
         self.assertIn("session date: %{customdata}", perf_trace.hovertemplate)
+        self.assertEqual(list(perf_trace.x), ms["x"])
+        self.assertEqual(figures[0].layout.xaxis.type, "date")
+        self.assertEqual(figures[0].layout.xaxis.title.text, "session datetime")
 
     def test_update_multi_smooth_enabled_still_returns_eight_figures(self):
         app = self.appmod.create_app()
@@ -1260,6 +1263,48 @@ class TestDataNonEmptyPaths(unittest.TestCase):
         self.assertIsNotNone(result)
         # Only Jan 1-5 pass the <= filter; sessions_back=10 keeps all 5.
         self.assertEqual(len(result["x"]), 5)
+
+    def test_multisession_metrics_keeps_same_day_sessions_distinct_on_x_axis(self):
+        df = pd.DataFrame(
+            {
+                "session_name": [
+                    "20260105_090000",
+                    "20260105_150000",
+                    "20260106_120000",
+                ],
+                "performance_easy": [0.6, 0.7, 0.8],
+                "n_with_choice": [60, 65, 70],
+                "response_values": [[-1, 1]] * 3,
+                "initiation_times": [[0.5, 0.6]] * 3,
+                "reaction_times": [[0.2, 0.3]] * 3,
+            }
+        )
+        with (
+            mock.patch.object(self.data, "get_subject_data", return_value=df),
+            mock.patch.object(
+                self.data, "get_wait_medians_for_sessions", return_value={}
+            ),
+            mock.patch.object(self.data, "get_subject_water", return_value={}),
+        ):
+            result = self.data.multisession_metrics("subject-a", sessions_back=10)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(
+            result["x"],
+            [
+                "2026-01-05 09:00:00",
+                "2026-01-05 15:00:00",
+                "2026-01-06 12:00:00",
+            ],
+        )
+        self.assertEqual(
+            result["session_dates"],
+            [
+                "2026-01-05 09:00:00",
+                "2026-01-05 15:00:00",
+                "2026-01-06 12:00:00",
+            ],
+        )
 
     # -- multisession_metrics: side_bias no-choice path (line 730) ------------
 
