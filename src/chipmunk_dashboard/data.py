@@ -1136,6 +1136,20 @@ def multisession_metrics(
         )
         for ts, name in zip(d["session_dt"].tolist(), session_names, strict=False)
     ]
+    training_time_hours: list[float] = []
+    for name in session_names:
+        if (
+            isinstance(name, str)
+            and len(name) >= 15
+            and name[8] == "_"
+            and name[9:15].isdigit()
+        ):
+            hh = int(name[9:11])
+            mm = int(name[11:13])
+            ss = int(name[13:15])
+            training_time_hours.append(hh + (mm / 60.0) + (ss / 3600.0))
+        else:
+            training_time_hours.append(np.nan)
 
     ew_rate: list[float] = []
     side_bias: list[float] = []
@@ -1184,6 +1198,7 @@ def multisession_metrics(
         median_rt=np.array(median_rt_list),
         median_wait=np.array(median_wait_list),
         water=np.array(water),
+        training_time_hours=np.array(training_time_hours),
     )
 
     out: dict[str, list[Any]] = {}
