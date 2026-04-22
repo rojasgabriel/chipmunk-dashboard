@@ -710,13 +710,13 @@ def create_app() -> Dash:
         Side Effects:
             Triggers multi-session cache prewarming anchored to the latest date.
         """
+        today = _date.today().isoformat()
         if ctx.triggered_id == "today-button":
-            today = _date.today().isoformat()
-            return today, None, None, today
+            return today, None, today, today
 
         subjects = (subjects_recent or []) + (subjects_older or [])
         if not subjects:
-            return None, None, None, None
+            return None, None, today, today
 
         all_dates = [
             f"{s[:4]}-{s[4:6]}-{s[6:8]}"
@@ -726,12 +726,12 @@ def create_app() -> Dash:
         ]
 
         if not all_dates:
-            return None, None, None, None
+            return None, None, today, today
 
         min_d = min(all_dates)
-        max_d = max(all_dates)
+        max_d = min(max(all_dates), today)
         prewarm_multisession_cache(subjects, sessions_back=30, start_date=max_d)
-        return max_d, min_d, max_d, max_d  # Default to latest
+        return max_d, min_d, today, max_d
 
     @app.callback(
         Output("session-time", "options"),

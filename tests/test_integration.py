@@ -1105,6 +1105,35 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
 
         self.assertEqual(len(figures), 8)
 
+    def test_update_date_options_caps_future_dates_at_today(self):
+        app = self.appmod.create_app()
+        update_date_options = app.callbacks["_update_date_options"]
+
+        class _FakeDate:
+            @staticmethod
+            def today():
+                from datetime import date
+
+                return date(2026, 1, 10)
+
+        with (
+            mock.patch.object(self.appmod, "_date", _FakeDate),
+            mock.patch.object(
+                self.appmod,
+                "get_sessions",
+                return_value=["20260105_010101", "20260114_120000"],
+            ),
+            mock.patch.object(self.appmod, "prewarm_multisession_cache") as prewarm,
+        ):
+            result = update_date_options([], ["subject-a"], 0, 0)
+
+        self.assertEqual(
+            result, ("2026-01-10", "2026-01-05", "2026-01-10", "2026-01-10")
+        )
+        prewarm.assert_called_once_with(
+            ["subject-a"], sessions_back=30, start_date="2026-01-10"
+        )
+
     def test_update_single_skips_subjects_with_falsy_session_name(self):
         """Line 590: `if not ses: continue` — session name resolves to empty string."""
         app = self.appmod.create_app()
