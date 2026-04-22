@@ -1,0 +1,44 @@
+name: Dashboard change
+description: Request a new view, plot, interaction, or behavior change
+title: "[feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: change
+    attributes:
+      label: What should change?
+      description: Describe the requested behavior in plain language.
+      placeholder: "Example: add a plot showing what time of day each session was run."
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why does this matter?
+      placeholder: "Example: this would make it obvious when training times drift over days."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where should this live?
+      options:
+        - sidebar / subject selection
+        - date picker / session selection
+        - single-session plots
+        - multisession plots
+        - app startup / CLI
+        - contributing / docs
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Optional.
+      placeholder: "Mockup, screenshot, related issue, or constraints."
