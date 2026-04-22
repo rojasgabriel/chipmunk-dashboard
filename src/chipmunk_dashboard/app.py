@@ -2639,7 +2639,7 @@ def create_app() -> Dash:
             yaxis_title="time of day",
             xaxis=_ms,
             yaxis=dict(
-                range=[0, 24],
+                range=[24, 0],
                 tickmode="array",
                 tickvals=list(range(0, 25, 3)),
                 ticktext=[f"{hour:02d}:00" for hour in range(0, 25, 3)],

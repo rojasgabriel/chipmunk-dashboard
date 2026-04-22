@@ -1174,6 +1174,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.assertEqual(list(training_trace.y), ms["training_time_hours"])
         self.assertEqual(figures[8].layout.title.text, "Training Time")
         self.assertEqual(figures[8].layout.yaxis.ticktext[3], "09:00")
+        self.assertEqual(list(figures[8].layout.yaxis.range), [24, 0])
 
 
 # ---------------------------------------------------------------------------
