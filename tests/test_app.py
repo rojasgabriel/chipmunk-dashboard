@@ -19,9 +19,20 @@ class _IO:
         self.kwargs = kwargs
 
 
+class _Layout(dict):
+    def __getattr__(self, name):
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+
 class _Figure:
     def __init__(self) -> None:
-        self.layout = {}
+        self.layout = _Layout()
         self.traces = []
         self.hlines = []
         self.vlines = []
@@ -31,6 +42,9 @@ class _Figure:
 
     def add_trace(self, trace) -> None:
         self.traces.append(trace)
+
+    def update_yaxes(self, **kw) -> None:
+        self.layout.update({f"yaxis_{k}": v for k, v in kw.items()})
 
     def add_hline(self, **kw) -> None:
         self.hlines.append(kw)
@@ -74,6 +88,7 @@ def _import_app_module():
     fake_plotly.__path__ = []
     fake_go = types.ModuleType("plotly.graph_objects")
     fake_go.Figure = _Figure
+    fake_go.Scatter = lambda **kwargs: types.SimpleNamespace(type="scatter", **kwargs)
     fake_px = types.ModuleType("plotly.express")
     fake_px.colors = types.SimpleNamespace(
         qualitative=types.SimpleNamespace(Plotly=["#1f77b4", "#ff7f0e", "#2ca02c"])
@@ -500,10 +515,33 @@ class TestAppUtilities(unittest.TestCase):
         app = self.appmod.create_app()
         update_multi = app.callbacks["_update_multi"]
         figures = update_multi([], [], 10, None, [], 3, 0)
-        self.assertEqual(len(figures), 8)
+        self.assertEqual(len(figures), 9)
         self.assertEqual(
             figures[0].layout["annotations"][0]["text"], "Select subject(s)"
         )
+
+    def test_update_multi_renders_training_time_plot(self) -> None:
+        app = self.appmod.create_app()
+        update_multi = app.callbacks["_update_multi"]
+        ms = {
+            "x": ["2026-01-01 09:00:00", "2026-01-02 10:30:00"],
+            "session_dates": ["2026-01-01 09:00:00", "2026-01-02 10:30:00"],
+            "training_time_hours": [9.0, 10.5],
+            "perf_easy": [0.6, 0.7],
+            "ew_rate": [0.1, 0.2],
+            "n_with_choice": [60, 70],
+            "side_bias": [0.0, 0.1],
+            "median_init": [0.5, 0.6],
+            "median_rt": [0.2, 0.3],
+            "median_wait": [1.0, 1.2],
+            "water": [1.5, 1.7],
+        }
+        with mock.patch.object(self.appmod, "multisession_metrics", return_value=ms):
+            figures = update_multi(["subject-a"], [], 10, "2026-01-10", [], 3, 0)
+
+        self.assertEqual(len(figures), 9)
+        self.assertEqual(figures[8].layout["title"]["text"], "Training Time")
+        self.assertEqual(figures[8].traces[0].type, "scatter")
 
     def test_update_date_options_returns_none_when_sessions_empty(self) -> None:
         app = self.appmod.create_app()

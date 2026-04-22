@@ -313,6 +313,7 @@ def _make_multisession_metrics() -> dict:
     return dict(
         x=[f"2026-01-{i + 1:02d} 12:00:00" for i in range(n)],
         session_dates=[f"2026-01-{i + 1:02d} 12:00:00" for i in range(n)],
+        training_time_hours=[9.5 + (i * 0.25) for i in range(n)],
         perf_easy=rng.uniform(0.5, 0.9, n).tolist(),
         ew_rate=rng.uniform(0.0, 0.3, n).tolist(),
         n_with_choice=[int(v) for v in rng.integers(50, 120, n)],
@@ -631,6 +632,7 @@ class TestAppCreationWithRealLibs(unittest.TestCase):
             _find_component_by_id(app.layout, "session-settings-toggle")
         )
         self.assertIsNotNone(_find_component_by_id(app.layout, "water-cumulative"))
+        self.assertIsNotNone(_find_component_by_id(app.layout, "training-time"))
 
     def test_create_app_places_iti_row_after_response_time_row(self):
         app = self.appmod.create_app()
@@ -870,6 +872,7 @@ class TestMultisessionMetricsWithRealLibs(unittest.TestCase):
         expected_keys = {
             "x",
             "session_dates",
+            "training_time_hours",
             "perf_easy",
             "ew_rate",
             "n_with_choice",
@@ -904,6 +907,26 @@ class TestMultisessionMetricsWithRealLibs(unittest.TestCase):
         ):
             result = self.data.multisession_metrics("subject-a", sessions_back=5)
         self.assertIsNone(result)
+
+    def test_multisession_metrics_returns_nan_training_time_when_session_name_lacks_time(
+        self,
+    ):
+        df = pd.DataFrame(
+            {
+                "session_name": ["20260105", "bad-session"],
+                "performance_easy": [0.6, 0.7],
+                "n_with_choice": [60, 65],
+                "response_values": [[-1, 1], [-1, 1]],
+                "initiation_times": [[0.5, 0.6], [0.7, 0.8]],
+                "reaction_times": [[0.2, 0.3], [0.4, 0.5]],
+            }
+        )
+        with self._patched(df)[0], self._patched(df)[1], self._patched(df)[2]:
+            result = self.data.multisession_metrics("subject-a", sessions_back=10)
+
+        self.assertIsNotNone(result)
+        self.assertTrue(math.isnan(result["training_time_hours"][0]))
+        self.assertTrue(math.isnan(result["training_time_hours"][1]))
 
 
 # ---------------------------------------------------------------------------
@@ -1044,7 +1067,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         with mock.patch.object(self.appmod, "multisession_metrics", return_value=ms):
             figures = update_multi(["subject-a"], [], 10, "2026-01-10", [], 3, 0)
 
-        self.assertEqual(len(figures), 8)
+        self.assertEqual(len(figures), 9)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
         # Performance figure should have one Scatter trace
@@ -1074,7 +1097,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
                 ["subject-a"], [], 10, "2026-01-10", ["smooth"], 5, 0
             )
 
-        self.assertEqual(len(figures), 8)
+        self.assertEqual(len(figures), 9)
         for fig in figures:
             self.assertIsInstance(fig, go.Figure)
 
@@ -1103,7 +1126,7 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         with mock.patch.object(self.appmod, "multisession_metrics", return_value=ms):
             figures = update_multi(["subject-a"], ["subject-b"], 10, None, [], 3, 0)
 
-        self.assertEqual(len(figures), 8)
+        self.assertEqual(len(figures), 9)
 
     def test_update_date_options_caps_future_dates_at_today(self):
         app = self.appmod.create_app()
@@ -1165,9 +1188,22 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         update_multi = app.callbacks["_update_multi"]
         with mock.patch.object(self.appmod, "multisession_metrics", return_value=None):
             figures = update_multi(["subject-a"], [], 10, "2026-01-10", [], 3, 0)
-        self.assertEqual(len(figures), 8)
-        for fig in figures:
-            self.assertIsInstance(fig, go.Figure)
+        self.assertEqual(len(figures), 9)
+
+    def test_update_multi_training_time_plot_uses_clock_axis(self):
+        app = self.appmod.create_app()
+        update_multi = app.callbacks["_update_multi"]
+        ms = _make_multisession_metrics()
+        with mock.patch.object(self.appmod, "multisession_metrics", return_value=ms):
+            figures = update_multi(["subject-a"], [], 10, "2026-01-10", [], 3, 0)
+
+        training_trace = figures[8].data[0]
+        self.assertEqual(training_trace.type, "scatter")
+        self.assertEqual(list(training_trace.x), ms["x"])
+        self.assertEqual(list(training_trace.y), ms["training_time_hours"])
+        self.assertEqual(figures[8].layout.title.text, "Training Time")
+        self.assertEqual(figures[8].layout.yaxis.ticktext[3], "09:00")
+        self.assertEqual(list(figures[8].layout.yaxis.range), [24, 0])
 
 
 # ---------------------------------------------------------------------------
