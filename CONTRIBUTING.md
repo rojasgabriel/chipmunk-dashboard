@@ -15,7 +15,8 @@ which checks gate changes, and how to add or modify dashboard features.
 6. [Environment variables](#environment-variables)
 7. [What is hardcoded vs. configurable](#what-is-hardcoded-vs-configurable)
 8. [Example: adding a new plot](#example-adding-a-new-plot)
-9. [Submitting changes](#submitting-changes)
+9. [Contributing with AI agents](#contributing-with-ai-agents)
+10. [Submitting changes](#submitting-changes)
 
 ---
 
@@ -566,6 +567,71 @@ uv run chipmunk-dashboard run --debug
 
 Select a subject and confirm the new plot appears in the Single Session section.
 Hot-reload will pick up any further edits automatically.
+
+---
+
+## Contributing with AI agents
+
+AI coding agents can be useful here, but they work best when you give them the
+same repo-specific constraints a human contributor would need.
+
+### Recommended workflow
+
+1. Start from a clean branch based on `dev`.
+2. Point the agent at this repo's source-of-truth docs first:
+   `CONTRIBUTING.md`, `AGENTS.md`, and the relevant files it will edit.
+3. Give the agent a narrow task with explicit scope, for example:
+   "Add a new multi-session plot", "Update the contributing guide", or
+   "Fix the failing Plotly integration test without changing app behavior."
+4. Require the agent to preserve the module boundary:
+   `cli.py -> app.py -> data.py`.
+   `app.py` should not query the database directly, and `data.py` should not
+   import from `app.py`.
+5. Have the agent run the same checks required of any contributor before you
+   accept its output.
+6. Review the diff yourself before opening a PR.
+
+### Repo-specific guidance for agent-driven changes
+
+- Ask the agent to inspect existing patterns before editing. Most regressions in
+  this repo come from skipping the established callback, layout, or test shape.
+- If the change adds a plot, tell the agent to use the repo's `add-plot` skill
+  at `.agents/skills/add-plot/SKILL.md`. That skill walks the required wiring:
+  metric, layout entry, callback `Output`, return tuple, and matching tests.
+- If the agent adds new Dash imports in `app.py`, make sure it also updates the
+  fake Dash shims in `tests/test_app.py` and `tests/test_integration.py`.
+- Do not accept dependency upgrades that loosen the intentional
+  `setuptools < 80` constraint without a concrete compatibility reason and test
+  evidence.
+- Treat agent output as a draft until it passes lint, tests, and a human review.
+
+### Minimum prompt checklist
+
+When prompting an agent, include:
+
+- the target branch base (`dev`)
+- the files or module area it may edit
+- whether behavior should change or stay identical
+- the required verification commands
+- any repo rules that matter for the task (`setuptools < 80`, fake Dash test
+  updates, and "use `.agents/skills/add-plot/SKILL.md` if this adds a plot",
+  etc.)
+
+### Verification commands
+
+At minimum, ask the agent to run:
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest --cov=src/chipmunk_dashboard --cov-fail-under=90
+```
+
+Include Playwright when the UI layout or interaction flow changed:
+
+```bash
+RUN_PLAYWRIGHT=1 uv run pytest tests/test_playwright_ui.py
+```
 
 ---
 
