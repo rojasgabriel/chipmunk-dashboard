@@ -44,6 +44,7 @@ _PLOT_H_BY_ID: dict[str, str] = {
     "response-time": "300px",
     "iti-dist": "300px",
     "trial-count-time": "300px",
+    "training-time": "300px",
 }
 _MAX_W = "560px"  # max width per plot
 _TIMING_Y_CLIP_PCT = 95.0
@@ -259,6 +260,16 @@ def create_app() -> Dash:
             config={"displayModeBar": False},
         )
 
+    def _clock_label(hours_since_midnight: float) -> str:
+        """Format decimal hours as a zero-padded clock string."""
+        if not math.isfinite(hours_since_midnight):
+            return "unknown"
+        total_seconds = int(round(hours_since_midnight * 3600))
+        total_seconds = max(0, min(total_seconds, 24 * 3600 - 1))
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        return f"{hours:02d}:{minutes:02d}"
+
     def _row(*ids: str) -> html.Div:
         """Create a grid row of standardized graph components.
 
@@ -418,7 +429,7 @@ def create_app() -> Dash:
         [
             html.Label("Subjects", style={"fontWeight": "bold"}),
             html.Div(
-                "blue = session in last 2 weeks",
+                "blue = subjects with recent sessions",
                 style={
                     "fontSize": "11px",
                     "color": _THEME["muted"],
@@ -609,7 +620,7 @@ def create_app() -> Dash:
                 style={"margin": "24px 0 12px", "borderBottom": "1px solid #ddd"},
             ),
             _row("performance", "ew-rate", "side-bias", "trial-counts"),
-            _row("init-times", "median-wait", "median-rt", "water"),
+            _row("init-times", "median-wait", "median-rt", "water", "training-time"),
         ]
     )
 
@@ -710,13 +721,13 @@ def create_app() -> Dash:
         Side Effects:
             Triggers multi-session cache prewarming anchored to the latest date.
         """
+        today = _date.today().isoformat()
         if ctx.triggered_id == "today-button":
-            today = _date.today().isoformat()
-            return today, None, None, today
+            return today, None, today, today
 
         subjects = (subjects_recent or []) + (subjects_older or [])
         if not subjects:
-            return None, None, None, None
+            return None, None, today, today
 
         all_dates = [
             f"{s[:4]}-{s[4:6]}-{s[6:8]}"
@@ -726,12 +737,12 @@ def create_app() -> Dash:
         ]
 
         if not all_dates:
-            return None, None, None, None
+            return None, None, today, today
 
         min_d = min(all_dates)
-        max_d = max(all_dates)
+        max_d = min(max(all_dates), today)
         prewarm_multisession_cache(subjects, sessions_back=30, start_date=max_d)
-        return max_d, min_d, max_d, max_d  # Default to latest
+        return max_d, min_d, today, max_d
 
     @app.callback(
         Output("session-time", "options"),
@@ -2309,6 +2320,7 @@ def create_app() -> Dash:
         Output("median-wait", "figure"),
         Output("trial-counts", "figure"),
         Output("water", "figure"),
+        Output("training-time", "figure"),
         Input("subjects-recent", "value"),
         Input("subjects-older", "value"),
         Input("sessions-back", "value"),
@@ -2338,8 +2350,8 @@ def create_app() -> Dash:
             - ``auto-refresh.n_intervals``
 
         Callback Outputs:
-            Eight figures for performance, EW rate, bias, medians, trial counts,
-            and water earned.
+            Nine figures for performance, EW rate, bias, medians, trial counts,
+            water earned, and training time.
 
         Args:
             subjects_recent: Selected recent subject names.
@@ -2350,14 +2362,14 @@ def create_app() -> Dash:
             smooth_window: Moving-average window size when smoothing is enabled.
             n_intervals: Auto-refresh tick counter (unused except as trigger).
         Returns:
-            An 8-item tuple of Plotly figures in callback output order.
+            A 9-item tuple of Plotly figures in callback output order.
 
         Side Effects:
             Reads cached multi-session metrics and emits performance logs when
             profiling is enabled.
         """
         start = time.perf_counter()
-        n = 8
+        n = 9
         subjects = (subjects_recent or []) + (subjects_older or [])
 
         if not subjects:
@@ -2370,16 +2382,19 @@ def create_app() -> Dash:
 
         fig_perf, fig_ew, fig_sb = go.Figure(), go.Figure(), go.Figure()
         fig_it, fig_mrt, fig_mwt = go.Figure(), go.Figure(), go.Figure()
-        fig_tc, fig_wa = go.Figure(), go.Figure()
+        fig_tc, fig_wa, fig_tt = go.Figure(), go.Figure(), go.Figure()
 
         for i, subj in enumerate(subjects):
             c = COLORS[i % len(COLORS)]
             grp = subj
 
             # Anchor Handling:
-            # - We use 'session_date' (YYYY-MM-DD string) as the anchor for EVERY subject.
-            # - This aligns "0" to that date for all subjects.
-            # - If date is None (startup), session_date usually defaults to latest, but we handle None.
+            # - We use 'session_date' (YYYY-MM-DD string) as the upper-date filter
+            #   for EVERY subject.
+            # - Each series still plots the true session datetime on the x-axis so
+            #   multiple sessions from one day remain visually distinct.
+            # - If date is None (startup), session_date usually defaults to latest,
+            #   but we handle None.
 
             ms = multisession_metrics(
                 subj,
@@ -2517,14 +2532,37 @@ def create_app() -> Dash:
                     + "</extra>",
                 )
             )
+            training_time_hours = ms.get("training_time_hours", [])
+            training_time_labels = [
+                _clock_label(float(val)) if val is not None else "unknown"
+                for val in training_time_hours
+            ]
+            fig_tt.add_trace(
+                go.Scatter(
+                    x=ms["x"],
+                    customdata=session_dates,
+                    text=training_time_labels,
+                    y=training_time_hours,
+                    mode="lines+markers",
+                    name=subj,
+                    legendgroup=grp,
+                    showlegend=False,
+                    marker=mk,
+                    line=dict(color=c),
+                    hovertemplate="session date: %{customdata}<br>"
+                    + "training time: %{text}<extra>"
+                    + subj
+                    + "</extra>",
+                )
+            )
 
         _ref_line = dict(line_dash="dash", line_color="grey", line_width=1)
 
-        _ms = dict(dtick=5, showgrid=False, zeroline=False)
+        _ms = dict(type="date", showgrid=False, zeroline=False)
         _layout(
             fig_perf,
             title="Performance (easy)",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="performance",
             yaxis_range=[0.3, 1],
             xaxis=_ms,
@@ -2534,7 +2572,7 @@ def create_app() -> Dash:
         _layout(
             fig_ew,
             title="E.W. Rate",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="e.w. rate",
             yaxis_range=[0, 1],
             xaxis=_ms,
@@ -2552,7 +2590,7 @@ def create_app() -> Dash:
         _layout(
             fig_sb,
             title="Bias Index",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="bias (R - L)",
             yaxis_range=[-0.6, 0.6],
             xaxis=_ms,
@@ -2562,37 +2600,50 @@ def create_app() -> Dash:
         _layout(
             fig_it,
             title="Median Initiation Time",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="time (s)",
             xaxis=_ms,
         )
         _layout(
             fig_mrt,
             title="Median Response Time",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="time (s)",
             xaxis=_ms,
         )
         _layout(
             fig_mwt,
             title="Median Wait Time",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="time (s)",
             xaxis=_ms,
         )
         _layout(
             fig_tc,
             title="Trials with Choice",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="trials",
             xaxis=_ms,
         )
         _layout(
             fig_wa,
             title="Water Earned",
-            xaxis_title="sessions back",
+            xaxis_title="session datetime",
             yaxis_title="volume (mL)",
             xaxis=_ms,
+        )
+        _layout(
+            fig_tt,
+            title="Training Time",
+            xaxis_title="session datetime",
+            yaxis_title="time of day",
+            xaxis=_ms,
+            yaxis=dict(
+                range=[24, 0],
+                tickmode="array",
+                tickvals=list(range(0, 25, 3)),
+                ticktext=[f"{hour:02d}:00" for hour in range(0, 25, 3)],
+            ),
         )
 
         _perf_log(
@@ -2603,6 +2654,16 @@ def create_app() -> Dash:
             smooth=do_smooth,
             smooth_window=win,
         )
-        return fig_perf, fig_ew, fig_sb, fig_it, fig_mrt, fig_mwt, fig_tc, fig_wa
+        return (
+            fig_perf,
+            fig_ew,
+            fig_sb,
+            fig_it,
+            fig_mrt,
+            fig_mwt,
+            fig_tc,
+            fig_wa,
+            fig_tt,
+        )
 
     return app

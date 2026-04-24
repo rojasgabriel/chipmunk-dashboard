@@ -89,7 +89,7 @@ Fake-Dash stubs (`_ComponentNamespace`, `_IO`, `_Figure`, `_Dash`) accept any co
 
 Add a test inside `TestCallbacksWithRealPlotly` that:
 - Uses `_make_session_metrics()` / `_make_multisession_metrics()` (grep for these helpers — they build realistic dicts).
-- Calls the real callback and confirms the figure is a `go.Figure` with the expected trace types — this catches plotly library breakage (see the CLAUDE.md note about plotly 6.x `titlefont` removal).
+- Calls the real callback and confirms the figure is a `go.Figure` with the expected trace types — this catches plotly library breakage (see the AGENTS.md note about plotly 6.x `titlefont` removal).
 
 ### Gotcha A: new Dash imports
 
