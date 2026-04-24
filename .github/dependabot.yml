@@ -7,3 +7,4 @@ updates:
       interval: "weekly"
     ignore:
       - dependency-name: "setuptools"
+    target-branch: "dev"
