@@ -128,7 +128,7 @@ def get_all_subjects() -> list[str]:
 
 
 @_ttl_lru_cache(maxsize=1)
-def get_subjects_with_recent_sessions(days: int = 14) -> set[str]:
+def get_subjects_with_recent_sessions(days: int = 7) -> set[str]:
     """Return subjects with at least one session recorded in the last ``days`` days.
 
     Session names are expected to follow the ``YYYYMMDD_HHMMSS`` format; any

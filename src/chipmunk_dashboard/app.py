@@ -429,7 +429,7 @@ def create_app() -> Dash:
         [
             html.Label("Subjects", style={"fontWeight": "bold"}),
             html.Div(
-                "blue = session in last 2 weeks",
+                "blue = subjects with recent sessions",
                 style={
                     "fontSize": "11px",
                     "color": _THEME["muted"],
