@@ -985,6 +985,9 @@ def create_app() -> Dash:
         wc_combined_idx: list[int] = []
         wc_split_idx: list[int] = []
         wc_trace_count = 0
+        tct_count_idx: list[int] = []
+        tct_water_idx: list[int] = []
+        tct_trace_count = 0
 
         # Collect outcome totals for multi-subject horizontal bars
         multi_outcome_data = []
@@ -1843,20 +1846,54 @@ def create_app() -> Dash:
 
             trial_count_x = sm.get("trial_count_x", [])
             trial_count_y = sm.get("trial_count_y", [])
+            trial_count_trial_nums = sm.get("trial_count_trial_nums", trial_count_x)
             if trial_count_x and trial_count_y:
                 fig_tct.add_trace(
                     go.Scatter(
                         x=trial_count_x,
                         y=trial_count_y,
+                        customdata=trial_count_trial_nums,
                         mode="lines+markers",
                         name=subj,
                         showlegend=multi_col,
                         legendgroup=grp,
                         marker=dict(color=c, size=6),
                         line=dict(color=c, width=2),
-                        hovertemplate="%{y:.0f}<extra>" + subj + "</extra>",
+                        hovertemplate=(
+                            "%{y:.0f} trials<br>"
+                            "elapsed: %{x:.1f} min<br>"
+                            "trial: %{customdata}<extra>" + subj + "</extra>"
+                        ),
                     )
                 )
+                tct_count_idx.append(tct_trace_count)
+                tct_trace_count += 1
+
+            water_cum_time_x = sm.get("water_cum_time_x", [])
+            water_cum_total = sm.get("water_cum_total_ul", [])
+            water_cum_x = sm.get("water_cum_x", [])
+            if water_cum_time_x and water_cum_total:
+                fig_tct.add_trace(
+                    go.Scatter(
+                        x=water_cum_time_x,
+                        y=water_cum_total,
+                        customdata=water_cum_x,
+                        yaxis="y2",
+                        mode="lines",
+                        name=(subj + " water") if multi_col else "Water",
+                        showlegend=multi_col,
+                        legendgroup=grp,
+                        line=dict(color=c, width=2, dash="dot"),
+                        hovertemplate=(
+                            "%{y:.1f} µL<br>"
+                            "elapsed: %{x:.1f} min<br>"
+                            "trial: %{customdata}<extra>" + subj + " water</extra>"
+                        ),
+                        visible=False,
+                    )
+                )
+                tct_water_idx.append(tct_trace_count)
+                tct_trace_count += 1
 
             water_cum_x = sm.get("water_cum_x", [])
             water_cum_total = sm.get("water_cum_total_ul", [])
@@ -2212,10 +2249,47 @@ def create_app() -> Dash:
         )
         _layout(
             fig_tct,
-            title="Rolling Trial Counts",
-            xaxis_title="trial number",
+            title="Trial Starts in Previous 5 min",
+            xaxis_title="elapsed time (min)",
             yaxis_title="trials in last 5 min",
         )
+        if tct_count_idx and tct_water_idx:
+            counts_only = [idx in tct_count_idx for idx in range(tct_trace_count)]
+            counts_and_water = [
+                idx in (tct_count_idx + tct_water_idx) for idx in range(tct_trace_count)
+            ]
+            fig_tct.update_layout(
+                yaxis2=dict(
+                    title="water (µL)",
+                    overlaying="y",
+                    side="right",
+                    rangemode="tozero",
+                    showgrid=False,
+                ),
+                updatemenus=[
+                    dict(
+                        type="buttons",
+                        active=-1,
+                        direction="left",
+                        x=1.0,
+                        y=1.18,
+                        xanchor="right",
+                        yanchor="top",
+                        showactive=True,
+                        bgcolor=_THEME["card"],
+                        bordercolor=_THEME["border"],
+                        font=dict(size=11, color=_THEME["text"]),
+                        buttons=[
+                            dict(
+                                label="Water",
+                                method="restyle",
+                                args=[{"visible": counts_and_water}],
+                                args2=[{"visible": counts_only}],
+                            )
+                        ],
+                    )
+                ],
+            )
         _layout(
             fig_wc,
             title="Cumulative Rewarded Water (µL)",
