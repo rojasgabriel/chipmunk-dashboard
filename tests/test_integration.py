@@ -279,6 +279,7 @@ def _make_session_metrics() -> dict:
         water_side_totals=[120.0, 150.0, 270.0],
         water_side_totals_ul=[120.0, 150.0, 270.0],
         water_cum_x=trial_nums,
+        water_cum_time_x=[float(v - 1) for v in trial_nums],
         water_cum_total_ul=np.cumsum(rng.uniform(1.0, 2.0, n)).tolist(),
         water_cum_left_ul=np.cumsum(rng.uniform(0.4, 1.0, n)).tolist(),
         water_cum_right_ul=np.cumsum(rng.uniform(0.4, 1.0, n)).tolist(),
@@ -297,7 +298,8 @@ def _make_session_metrics() -> dict:
         iti_roll_ew_y=rng.uniform(0.5, 2.0, n_iti_roll).tolist(),
         iti_roll_no_choice_x=iti_roll_x,
         iti_roll_no_choice_y=rng.uniform(0.5, 2.0, n_iti_roll).tolist(),
-        trial_count_x=[5, 10, 15, 20],
+        trial_count_x=[0.0, 1.0, 2.0, 3.0],
+        trial_count_trial_nums=[5, 10, 15, 20],
         trial_count_y=[6.0, 8.0, 9.0, 10.0],
         slide_x=roll_x,
         slide_y=rng.uniform(0.5, 0.9, nroll).tolist(),
@@ -721,11 +723,13 @@ class TestSessionMetricsWithRealLibs(unittest.TestCase):
             "water_side_totals",
             "water_side_totals_ul",
             "water_cum_x",
+            "water_cum_time_x",
             "water_cum_total_ul",
             "water_cum_left_ul",
             "water_cum_right_ul",
             "iti_times",
             "trial_count_x",
+            "trial_count_trial_nums",
             "trial_count_y",
             "init_times",
             "init_trial_nums",
@@ -991,8 +995,17 @@ class TestCallbacksWithRealPlotly(unittest.TestCase):
         self.assertGreaterEqual(len(figures[12].data), 1)
         self.assertIsInstance(figures[12].data[0], go.Scatter)
         # Trial-count-time (index 13) is a rolling scatter in single-subject mode
-        self.assertEqual(len(figures[13].data), 1)
+        self.assertEqual(len(figures[13].data), 2)
         self.assertIsInstance(figures[13].data[0], go.Scatter)
+        self.assertIsInstance(figures[13].data[1], go.Scatter)
+        self.assertEqual(figures[13].layout.xaxis.title.text, "elapsed time (min)")
+        self.assertEqual(list(figures[13].data[0].x), sm["trial_count_x"])
+        self.assertEqual(
+            list(figures[13].data[0].customdata), sm["trial_count_trial_nums"]
+        )
+        self.assertEqual(list(figures[13].data[1].x), sm["water_cum_time_x"])
+        self.assertEqual(figures[13].data[1].visible, False)
+        self.assertEqual(figures[13].layout.updatemenus[0].buttons[0].label, "Water")
         # Water cumulative plot (index 14) has line traces + side toggle
         self.assertGreaterEqual(len(figures[14].data), 1)
         self.assertIsInstance(figures[14].data[0], go.Scatter)

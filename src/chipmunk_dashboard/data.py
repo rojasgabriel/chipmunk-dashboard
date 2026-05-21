@@ -771,20 +771,27 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     start_times = start_times_all[start_mask]
     start_trial_nums = trial_nums[start_mask]
     if start_times.size:
+        start_sort_idx = np.argsort(start_times)
+        start_times = start_times[start_sort_idx]
+        start_trial_nums = start_trial_nums[start_sort_idx]
         window_sec = 5.0 * 60.0
-        trial_count_x: list[int] = []
+        first_start_t = float(start_times[0])
+        trial_count_x: list[float] = []
+        trial_count_trial_nums: list[int] = []
         trial_count_vals_list: list[float] = []
         left_idx = 0
         for idx, current_t in enumerate(start_times):
             while left_idx < idx and start_times[left_idx] < (current_t - window_sec):
                 left_idx += 1
             if idx % 5 == 0 or idx == (start_times.size - 1):
-                trial_count_x.append(int(start_trial_nums[idx]))
+                trial_count_x.append(float((current_t - first_start_t) / 60.0))
+                trial_count_trial_nums.append(int(start_trial_nums[idx]))
                 trial_count_vals_list.append(float(idx - left_idx + 1))
         trial_count_vals = np.asarray(trial_count_vals_list, dtype=float)
     else:
         trial_count_vals = np.array([])
         trial_count_x = []
+        trial_count_trial_nums = []
 
     # Rolling median of wait delta (20-trial window)
     wait_delta_x, wait_delta_y = [], []
@@ -944,6 +951,19 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     water_cum_left = np.cumsum(water_step_left)
     water_cum_right = np.cumsum(water_step_right)
     water_cum_x = trial_nums.astype(int).tolist()
+    valid_trial_start_times = np.where(
+        np.isfinite(start_times_all), start_times_all, np.nan
+    )
+    if np.any(np.isfinite(valid_trial_start_times)):
+        first_trial_start_t = float(np.nanmin(valid_trial_start_times))
+        water_cum_time_x = (
+            (valid_trial_start_times - first_trial_start_t) / 60.0
+        ).astype(float)
+        water_cum_time_x = np.where(
+            np.isfinite(water_cum_time_x), water_cum_time_x, np.nan
+        ).tolist()
+    else:
+        water_cum_time_x = []
     water_side_totals_ul = [
         float(water_cum_left[-1]) if water_cum_left.size else 0.0,
         float(water_cum_right[-1]) if water_cum_right.size else 0.0,
@@ -982,6 +1002,7 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         water_cum_right_ul=water_cum_right.astype(float).tolist(),
         water_side_totals=water_side_totals_ul,
         water_side_totals_ul=water_side_totals_ul,
+        water_cum_time_x=water_cum_time_x,
         iti_times=iti_vals.tolist(),
         iti_times_after_correct=iti_after_correct,
         iti_times_after_incorrect=iti_after_incorrect,
@@ -998,6 +1019,7 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         iti_roll_no_choice_x=iti_roll_no_choice_x,
         iti_roll_no_choice_y=iti_roll_no_choice_y,
         trial_count_x=trial_count_x,
+        trial_count_trial_nums=trial_count_trial_nums,
         trial_count_y=trial_count_vals.astype(float).tolist(),
         init_times=init_vals.tolist(),
         init_trial_nums=init_trial_nums.tolist(),

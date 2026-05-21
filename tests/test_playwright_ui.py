@@ -160,6 +160,7 @@ def _session_metrics_payload() -> dict:
         "water_side_totals": [18.0, 20.0, 38.0],
         "water_side_totals_ul": [18.0, 20.0, 38.0],
         "water_cum_x": trial_nums,
+        "water_cum_time_x": [float(v - 1) for v in trial_nums],
         "water_cum_total_ul": [float(v) for v in range(1, 61)],
         "water_cum_left_ul": [float(v // 2 + 1) for v in range(1, 61)],
         "water_cum_right_ul": [float(v // 2) for v in range(1, 61)],
@@ -178,7 +179,8 @@ def _session_metrics_payload() -> dict:
         "iti_roll_ew_y": [0.99, 1.0, 1.01, 1.02, 1.03, 1.02, 1.01, 1.0],
         "iti_roll_no_choice_x": iti_roll_x,
         "iti_roll_no_choice_y": [0.9, 0.92, 0.94, 0.95, 0.96, 0.95, 0.94, 0.93],
-        "trial_count_x": [5, 10, 15, 20],
+        "trial_count_x": [0.0, 1.0, 2.0, 3.0],
+        "trial_count_trial_nums": [5, 10, 15, 20],
         "trial_count_y": [6.0, 8.0, 9.0, 10.0],
     }
 

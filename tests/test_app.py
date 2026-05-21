@@ -422,6 +422,7 @@ class TestAppUtilities(unittest.TestCase):
             "session_settings_lines": ["trials: 42", "rewarded modality: audio"],
             "water_side_totals_ul": [120.0, 180.0, 300.0],
             "water_cum_x": [1, 2, 3],
+            "water_cum_time_x": [0.0, 1.0, 2.0],
             "water_cum_total_ul": [100.0, 200.0, 300.0],
             "water_cum_left_ul": [100.0, 200.0, 200.0],
             "water_cum_right_ul": [0.0, 0.0, 100.0],
@@ -440,7 +441,8 @@ class TestAppUtilities(unittest.TestCase):
             "iti_roll_ew_y": [1.0],
             "iti_roll_no_choice_x": [28],
             "iti_roll_no_choice_y": [0.85],
-            "trial_count_x": [5, 10],
+            "trial_count_x": [0.0, 1.0],
+            "trial_count_trial_nums": [5, 10],
             "trial_count_y": [6.0, 8.0],
         }
 
