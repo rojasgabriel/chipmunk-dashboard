@@ -639,13 +639,26 @@ def create_app() -> Dash:
     app.layout = html.Div(
         [
             auto_refresh,
-            html.H2(
-                "Chipmunk Dashboard",
-                style={
-                    "margin": "0 0 8px",
-                    "fontFamily": "Space Grotesk, sans-serif",
-                    "letterSpacing": "0.2px",
-                },
+            html.Div(
+                [
+                    html.H2(
+                        "Chipmunk Dashboard",
+                        style={
+                            "margin": 0,
+                            "fontFamily": "Space Grotesk, sans-serif",
+                            "letterSpacing": "0.2px",
+                        },
+                    ),
+                    html.Button(
+                        "☰",
+                        id="sidebar-toggle-button",
+                        className="sidebar-toggle-button",
+                        type="button",
+                        title="Toggle sidebar",
+                        **{"aria-label": "Toggle sidebar"},
+                    ),
+                ],
+                className="dashboard-header",
             ),
             html.Div(
                 [sidebar, main_area],

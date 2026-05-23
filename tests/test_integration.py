@@ -629,12 +629,19 @@ class TestAppCreationWithRealLibs(unittest.TestCase):
 
     def test_create_app_includes_overview_summary_boxes(self):
         app = self.appmod.create_app()
+        self.assertIsNotNone(_find_component_by_id(app.layout, "sidebar-toggle-button"))
         self.assertIsNotNone(_find_component_by_id(app.layout, "session-settings-box"))
         self.assertIsNotNone(
             _find_component_by_id(app.layout, "session-settings-toggle")
         )
         self.assertIsNotNone(_find_component_by_id(app.layout, "water-cumulative"))
         self.assertIsNotNone(_find_component_by_id(app.layout, "training-time"))
+
+    def test_create_app_loads_sidebar_shortcut_asset(self):
+        app = self.appmod.create_app()
+        app._setup_server()
+        index_html = app.index()
+        self.assertIn("sidebar-shortcut.js", index_html)
 
     def test_create_app_places_iti_row_after_response_time_row(self):
         app = self.appmod.create_app()

@@ -269,6 +269,34 @@ def test_dashboard_functional_smoke(page, dashboard_url):
     assert older_checkbox.is_checked()
 
 
+def test_sidebar_toggle_button_collapses_sidebar(page, dashboard_url):
+    _open_dashboard_with_subject(page, dashboard_url)
+
+    root = page.locator(".dashboard-root")
+    sidebar = page.locator(".dashboard-sidebar")
+    button = page.locator("#sidebar-toggle-button")
+    main = page.locator(".dashboard-main")
+
+    assert root.evaluate("(el) => el.classList.contains('sidebar-collapsed')") is False
+    assert sidebar.is_visible()
+
+    button.click()
+    page.wait_for_timeout(100)
+
+    assert root.evaluate("(el) => el.classList.contains('sidebar-collapsed')") is True
+    assert sidebar.is_hidden()
+    assert sidebar.evaluate("(el) => el.hidden") is True
+    assert main.bounding_box()["x"] == 0
+    assert main.bounding_box()["width"] == page.viewport_size["width"]
+
+    button.click()
+    page.wait_for_timeout(100)
+
+    assert root.evaluate("(el) => el.classList.contains('sidebar-collapsed')") is False
+    assert sidebar.is_visible()
+    assert sidebar.evaluate("(el) => el.hidden") is False
+
+
 def test_overview_layout_hash_regression(page, dashboard_url):
     _open_dashboard_with_subject(page, dashboard_url)
     _open_single_session_tab(page, "Overview")

@@ -170,6 +170,10 @@ class TestAppUtilities(unittest.TestCase):
         self.assertEqual(values, ["single-overview", "single-timing"])
         toggle = _find_fake_component(app.layout, "Details", "session-settings-toggle")
         self.assertIsNotNone(toggle)
+        sidebar_toggle = _find_fake_component(
+            app.layout, "Button", "sidebar-toggle-button"
+        )
+        self.assertIsNotNone(sidebar_toggle)
 
     def test_perf_log_skips_when_disabled(self) -> None:
         with (
