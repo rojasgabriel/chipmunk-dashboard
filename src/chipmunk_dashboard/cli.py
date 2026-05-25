@@ -35,10 +35,18 @@ def main() -> None:
         action="store_true",
         help="Do not automatically open the dashboard in a browser",
     )
+    run_p.add_argument(
+        "--ui-debug",
+        action="store_true",
+        help="Use built-in fixture data so UI work can run without database access",
+    )
 
     args = parser.parse_args()
 
     if args.command == "run":
+        if args.ui_debug:
+            os.environ["CHIPMUNK_UI_DEBUG"] = "1"
+
         from .app import create_app
 
         app = create_app()

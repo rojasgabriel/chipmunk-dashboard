@@ -3,21 +3,10 @@
   overflow: hidden;
 }
 
-.dashboard-root.sidebar-collapsed {
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-}
-
-.dashboard-root.sidebar-collapsed .dashboard-header {
-  padding-left: 12px;
-  padding-right: 12px;
-}
-
 .dashboard-header {
   align-items: center;
   display: flex;
   gap: 12px;
-  justify-content: space-between;
   margin: 0 0 8px;
 }
 
@@ -30,13 +19,14 @@
   color: #1f2630;
   cursor: pointer;
   display: inline-flex;
-  font-size: 18px;
-  font-weight: 700;
-  height: 34px;
+  font-size: 15px;
+  font-weight: 600;
+  height: 30px;
   justify-content: center;
   line-height: 1;
-  min-width: 38px;
-  padding: 0 10px;
+  min-width: 0;
+  padding: 0;
+  width: 30px;
 }
 
 .sidebar-toggle-button:hover {
@@ -52,16 +42,6 @@
   display: flex;
   height: calc(100vh - 56px);
   overflow: hidden;
-}
-
-.dashboard-root.sidebar-collapsed .dashboard-sidebar {
-  display: none;
-}
-
-.dashboard-root.sidebar-collapsed .dashboard-main {
-  flex-basis: 100%;
-  padding-left: 0;
-  padding-right: 0;
 }
 
 .dashboard-sidebar {
@@ -163,10 +143,6 @@
     max-width: none;
     border-right: none;
     border-bottom: 1px solid #e3e7ef;
-  }
-
-  .dashboard-root.sidebar-collapsed .dashboard-sidebar {
-    display: none;
   }
 
   .dashboard-main {

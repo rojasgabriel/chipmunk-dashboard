@@ -16,6 +16,7 @@ Three layers:
 
 import importlib
 import math
+import os
 import sys
 import types
 import unittest
@@ -629,6 +630,7 @@ class TestAppCreationWithRealLibs(unittest.TestCase):
 
     def test_create_app_includes_overview_summary_boxes(self):
         app = self.appmod.create_app()
+        self.assertIsNotNone(_find_component_by_id(app.layout, "sidebar-collapsed"))
         self.assertIsNotNone(_find_component_by_id(app.layout, "sidebar-toggle-button"))
         self.assertIsNotNone(_find_component_by_id(app.layout, "session-settings-box"))
         self.assertIsNotNone(
@@ -637,11 +639,20 @@ class TestAppCreationWithRealLibs(unittest.TestCase):
         self.assertIsNotNone(_find_component_by_id(app.layout, "water-cumulative"))
         self.assertIsNotNone(_find_component_by_id(app.layout, "training-time"))
 
-    def test_create_app_loads_sidebar_shortcut_asset(self):
-        app = self.appmod.create_app()
-        app._setup_server()
-        index_html = app.index()
-        self.assertIn("sidebar-shortcut.js", index_html)
+    def test_create_app_ui_debug_uses_fixture_data(self):
+        sys.modules.pop("chipmunk_dashboard.app", None)
+
+        try:
+            with mock.patch.dict(os.environ, {"CHIPMUNK_UI_DEBUG": "1"}):
+                appmod = importlib.import_module("chipmunk_dashboard.app")
+                app = appmod.create_app()
+        finally:
+            sys.modules.pop("chipmunk_dashboard.app", None)
+
+        self.assertIsInstance(app, Dash)
+        self.assertEqual(
+            appmod.get_all_subjects.__module__, "chipmunk_dashboard.debug_data"
+        )
 
     def test_create_app_places_iti_row_after_response_time_row(self):
         app = self.appmod.create_app()

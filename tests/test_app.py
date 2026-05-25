@@ -174,6 +174,65 @@ class TestAppUtilities(unittest.TestCase):
             app.layout, "Button", "sidebar-toggle-button"
         )
         self.assertIsNotNone(sidebar_toggle)
+        state = _find_fake_component(app.layout, "Store", "sidebar-collapsed")
+        self.assertIsNotNone(state)
+
+    def test_toggle_sidebar_callback_updates_layout_state(self) -> None:
+        app = self.appmod.create_app()
+        toggle_sidebar = app.callbacks["_toggle_sidebar"]
+
+        (
+            collapsed,
+            root_style,
+            header_style,
+            sidebar_style,
+            main_style,
+            toggle_style,
+            icon,
+            title,
+            aria_label,
+            pressed,
+        ) = toggle_sidebar(1, False)
+
+        self.assertTrue(collapsed)
+        self.assertEqual(root_style["padding"], "0")
+        self.assertEqual(header_style["padding"], "12px 12px 0")
+        self.assertEqual(sidebar_style["display"], "none")
+        self.assertNotIn("paddingTop", main_style)
+        self.assertEqual(main_style["paddingLeft"], "0")
+        self.assertEqual(main_style["paddingRight"], "0")
+        self.assertEqual(main_style["width"], "100%")
+        self.assertEqual(toggle_style, {})
+        self.assertEqual(icon, "➡️")
+        self.assertEqual(title, "Show sidebar")
+        self.assertEqual(aria_label, "Show sidebar")
+        self.assertEqual(pressed, "true")
+
+        (
+            collapsed,
+            root_style,
+            header_style,
+            sidebar_style,
+            main_style,
+            toggle_style,
+            icon,
+            title,
+            aria_label,
+            pressed,
+        ) = toggle_sidebar(2, True)
+
+        self.assertFalse(collapsed)
+        self.assertEqual(root_style["padding"], "12px")
+        self.assertNotIn("padding", header_style)
+        self.assertEqual(sidebar_style["display"], "flex")
+        self.assertNotIn("paddingTop", main_style)
+        self.assertNotIn("paddingLeft", main_style)
+        self.assertNotIn("width", main_style)
+        self.assertEqual(toggle_style, {})
+        self.assertEqual(icon, "⬅️")
+        self.assertEqual(title, "Hide sidebar")
+        self.assertEqual(aria_label, "Hide sidebar")
+        self.assertEqual(pressed, "false")
 
     def test_perf_log_skips_when_disabled(self) -> None:
         with (

@@ -10,15 +10,27 @@ from datetime import date as _date
 from dash import Dash, ctx, dcc, html, Input, Output, State
 import plotly.graph_objects as go
 import plotly.express as px
-from .data import (
-    get_all_subjects,
-    get_subjects_with_recent_sessions,
-    get_sessions,
-    get_subjects_for_date,
-    session_metrics,
-    multisession_metrics,
-    prewarm_multisession_cache,
-)
+
+if os.getenv("CHIPMUNK_UI_DEBUG", "0") == "1":
+    from .debug_data import (
+        get_all_subjects,
+        get_subjects_with_recent_sessions,
+        get_sessions,
+        get_subjects_for_date,
+        session_metrics,
+        multisession_metrics,
+        prewarm_multisession_cache,
+    )
+else:
+    from .data import (
+        get_all_subjects,
+        get_subjects_with_recent_sessions,
+        get_sessions,
+        get_subjects_for_date,
+        session_metrics,
+        multisession_metrics,
+        prewarm_multisession_cache,
+    )
 
 COLORS = px.colors.qualitative.Plotly
 _MARGIN: dict[str, int] = dict(l=50, r=20, t=42, b=80)
@@ -425,6 +437,27 @@ def create_app() -> Dash:
     _init_recent_opts, _init_older_opts = _build_subject_options(
         subjects, recent_subjects
     )
+    sidebar_style = {
+        "padding": "16px",
+        "background": _THEME["panel"],
+        "display": "flex",
+        "flexDirection": "column",
+    }
+    main_style = {
+        "flex": 1,
+        "display": "flex",
+        "flexDirection": "column",
+        "overflowY": "auto",
+        "background": _THEME["bg"],
+    }
+    root_style = {
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "padding": "12px",
+        "background": _THEME["bg"],
+        "color": _THEME["text"],
+    }
+    header_style: dict[str, str] = {}
+    toggle_style: dict[str, str] = {}
     sidebar = html.Div(
         [
             html.Label("Subjects", style={"fontWeight": "bold"}),
@@ -541,13 +574,9 @@ def create_app() -> Dash:
                 marks={i: str(i) for i in [1, 5, 10, 15, 20, 25, 30]},
             ),
         ],
+        id="dashboard-sidebar",
         className="dashboard-sidebar",
-        style={
-            "padding": "16px",
-            "background": _THEME["panel"],
-            "display": "flex",
-            "flexDirection": "column",
-        },
+        style=sidebar_style,
     )
 
     # -- content sections -----------------------------------------------------
@@ -626,19 +655,15 @@ def create_app() -> Dash:
 
     main_area = html.Div(
         [single_section, multi_section],
+        id="dashboard-main",
         className="dashboard-main",
-        style={
-            "flex": 1,
-            "display": "flex",
-            "flexDirection": "column",
-            "overflowY": "auto",
-            "background": _THEME["bg"],
-        },
+        style=main_style,
     )
 
     app.layout = html.Div(
         [
             auto_refresh,
+            dcc.Store(id="sidebar-collapsed", data=False),
             html.Div(
                 [
                     html.H2(
@@ -650,31 +675,92 @@ def create_app() -> Dash:
                         },
                     ),
                     html.Button(
-                        "☰",
+                        "⬅️",
                         id="sidebar-toggle-button",
                         className="sidebar-toggle-button",
                         type="button",
-                        title="Toggle sidebar",
-                        **{"aria-label": "Toggle sidebar"},
+                        title="Hide sidebar",
+                        style=toggle_style,
+                        **{"aria-pressed": "false"},
+                        **{"aria-label": "Hide sidebar"},
                     ),
                 ],
+                id="dashboard-header",
                 className="dashboard-header",
+                style=header_style,
             ),
             html.Div(
-                [sidebar, main_area],
+                [
+                    sidebar,
+                    main_area,
+                ],
+                id="dashboard-shell",
                 className="dashboard-shell",
             ),
         ],
+        id="dashboard-root",
         className="dashboard-root",
-        style={
-            "fontFamily": "IBM Plex Sans, sans-serif",
-            "padding": "12px",
-            "background": _THEME["bg"],
-            "color": _THEME["text"],
-        },
+        style=root_style,
     )
 
     # -- callbacks ------------------------------------------------------------
+
+    @app.callback(
+        Output("sidebar-collapsed", "data"),
+        Output("dashboard-root", "style"),
+        Output("dashboard-header", "style"),
+        Output("dashboard-sidebar", "style"),
+        Output("dashboard-main", "style"),
+        Output("sidebar-toggle-button", "style"),
+        Output("sidebar-toggle-button", "children"),
+        Output("sidebar-toggle-button", "title"),
+        Output("sidebar-toggle-button", "aria-label"),
+        Output("sidebar-toggle-button", "aria-pressed"),
+        Input("sidebar-toggle-button", "n_clicks"),
+        State("sidebar-collapsed", "data"),
+    )
+    def _toggle_sidebar(n_clicks, is_collapsed):
+        """Toggle the sidebar as explicit Dash state."""
+        collapsed = bool(is_collapsed)
+        if n_clicks:
+            collapsed = not collapsed
+
+        if not collapsed:
+            return (
+                False,
+                root_style,
+                header_style,
+                sidebar_style,
+                main_style,
+                toggle_style,
+                "⬅️",
+                "Hide sidebar",
+                "Hide sidebar",
+                "false",
+            )
+
+        collapsed_root_style = {**root_style, "padding": "0"}
+        collapsed_header_style = {**header_style, "padding": "12px 12px 0"}
+        collapsed_sidebar_style = {**sidebar_style, "display": "none"}
+        collapsed_main_style = {
+            **main_style,
+            "flex": "1 1 100%",
+            "paddingLeft": "0",
+            "paddingRight": "0",
+            "width": "100%",
+        }
+        return (
+            True,
+            collapsed_root_style,
+            collapsed_header_style,
+            collapsed_sidebar_style,
+            collapsed_main_style,
+            toggle_style,
+            "➡️",
+            "Show sidebar",
+            "Show sidebar",
+            "true",
+        )
 
     def _sessions_on_date(sessions_list: list[str], date_val: str) -> str | None:
         """Return the latest session name for a subject on a given calendar date.

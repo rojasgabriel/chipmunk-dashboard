@@ -272,29 +272,29 @@ def test_dashboard_functional_smoke(page, dashboard_url):
 def test_sidebar_toggle_button_collapses_sidebar(page, dashboard_url):
     _open_dashboard_with_subject(page, dashboard_url)
 
-    root = page.locator(".dashboard-root")
     sidebar = page.locator(".dashboard-sidebar")
     button = page.locator("#sidebar-toggle-button")
     main = page.locator(".dashboard-main")
 
-    assert root.evaluate("(el) => el.classList.contains('sidebar-collapsed')") is False
     assert sidebar.is_visible()
+    assert button.get_attribute("title") == "Hide sidebar"
+    assert button.inner_text() == "⬅️"
 
     button.click()
     page.wait_for_timeout(100)
 
-    assert root.evaluate("(el) => el.classList.contains('sidebar-collapsed')") is True
     assert sidebar.is_hidden()
-    assert sidebar.evaluate("(el) => el.hidden") is True
+    assert button.get_attribute("title") == "Show sidebar"
+    assert button.inner_text() == "➡️"
     assert main.bounding_box()["x"] == 0
     assert main.bounding_box()["width"] == page.viewport_size["width"]
 
     button.click()
     page.wait_for_timeout(100)
 
-    assert root.evaluate("(el) => el.classList.contains('sidebar-collapsed')") is False
     assert sidebar.is_visible()
-    assert sidebar.evaluate("(el) => el.hidden") is False
+    assert button.get_attribute("title") == "Hide sidebar"
+    assert button.inner_text() == "⬅️"
 
 
 def test_overview_layout_hash_regression(page, dashboard_url):
