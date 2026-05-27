@@ -11,7 +11,7 @@ dependencies = [
     "plotly<7",
     "pandas",
     "numpy",
-    "labdata>=0.0.22",
+    "labdata>=0.1.8",
     # Newer setuptools releases break the real labdata/datajoint import path.
     "setuptools==79.0.1",
 ]
