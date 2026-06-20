@@ -157,7 +157,6 @@ def _session_metrics_payload() -> dict:
             "audio stim range: 5.00 to 15.00",
             "visual stim range: 5.00 to 15.00",
         ],
-        "water_side_totals": [18.0, 20.0, 38.0],
         "water_side_totals_ul": [18.0, 20.0, 38.0],
         "water_cum_x": trial_nums,
         "water_cum_time_x": [float(v - 1) for v in trial_nums],

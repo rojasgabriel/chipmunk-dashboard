@@ -1,67 +1,57 @@
 """Dash application — layout and callbacks."""
 
+from importlib import import_module
 from typing import Any, cast
 import os
 import time
-import logging
 import math
+import statistics
 from datetime import date as _date
 
 from dash import Dash, ctx, dcc, html, Input, Output, State
+import plotly.colors
 import plotly.graph_objects as go
-import plotly.express as px
 
-if os.getenv("CHIPMUNK_UI_DEBUG", "0") == "1":
-    from .debug_data import (
-        get_all_subjects,
-        get_subjects_with_recent_sessions,
-        get_sessions,
-        get_subjects_for_date,
-        session_metrics,
-        multisession_metrics,
-        prewarm_multisession_cache,
-    )
-else:
-    from .data import (
-        get_all_subjects,
-        get_subjects_with_recent_sessions,
-        get_sessions,
-        get_subjects_for_date,
-        session_metrics,
-        multisession_metrics,
-        prewarm_multisession_cache,
-    )
+from .perf import perf_log
 
-COLORS = px.colors.qualitative.Plotly
+_data = import_module(
+    ".debug_data" if os.getenv("CHIPMUNK_UI_DEBUG", "0") == "1" else ".data",
+    __package__,
+)
+get_all_subjects = _data.get_all_subjects
+get_subjects_with_recent_sessions = _data.get_subjects_with_recent_sessions
+get_sessions = _data.get_sessions
+get_subjects_for_date = _data.get_subjects_for_date
+session_metrics = _data.session_metrics
+multisession_metrics = _data.multisession_metrics
+prewarm_multisession_cache = _data.prewarm_multisession_cache
+
+COLORS = plotly.colors.qualitative.Plotly
 _MARGIN: dict[str, int] = dict(l=50, r=20, t=42, b=80)
 _CLEAN: dict[str, Any] = dict(
     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)"
 )
 _AXIS_CLEAN = dict(showgrid=False, zeroline=False, tickfont=dict(color="#56606b"))
 _LEGEND: dict[str, Any] = dict(visible=False)
-_PLOT_H_DEFAULT = "280px"
-_PLOT_H_BY_ID: dict[str, str] = {
-    # line/scatter-heavy panels benefit from extra vertical space
-    "session-perf": "300px",
-    "init-line": "300px",
-    "wait-delta-line": "300px",
-    "wait-floor-line": "300px",
-    "response-time-line": "300px",
-    "iti-rolling": "320px",
-    "water-cumulative": "300px",
-    # distribution / count panels
-    "init-hist": "300px",
-    "wait-delta-hist": "300px",
-    "wait-floor-hist": "300px",
-    "response-time": "300px",
-    "iti-dist": "300px",
-    "trial-count-time": "300px",
-    "training-time": "300px",
-}
+_TALL_GRAPH_IDS = frozenset(
+    {
+        "session-perf",
+        "init-line",
+        "wait-delta-line",
+        "wait-floor-line",
+        "response-time-line",
+        "water-cumulative",
+        "init-hist",
+        "wait-delta-hist",
+        "wait-floor-hist",
+        "response-time",
+        "iti-dist",
+        "trial-count-time",
+        "training-time",
+    }
+)
 _MAX_W = "560px"  # max width per plot
 _TIMING_Y_CLIP_PCT = 95.0
-_PROFILE_PERF = os.getenv("CHIPMUNK_PROFILE", "0") == "1"
-_LOGGER = logging.getLogger(__name__)
 _THEME = dict(
     bg="#f6f7fb",
     panel="#eef1f6",
@@ -141,13 +131,11 @@ def _percentile(values: list[float], pct: float) -> float:
         return float(values[0])
     p = min(100.0, max(0.0, float(pct)))
     sorted_vals = sorted(float(v) for v in values)
-    pos = (len(sorted_vals) - 1) * (p / 100.0)
-    lo = int(math.floor(pos))
-    hi = int(math.ceil(pos))
-    if lo == hi:
-        return sorted_vals[lo]
-    frac = pos - lo
-    return sorted_vals[lo] * (1.0 - frac) + sorted_vals[hi] * frac
+    if p == 0:
+        return sorted_vals[0]
+    if p == 100:
+        return sorted_vals[-1]
+    return statistics.quantiles(sorted_vals, n=100, method="inclusive")[int(p) - 1]
 
 
 def _robust_y_range(
@@ -172,28 +160,6 @@ def _robust_y_range(
     if hi <= lo:
         hi = lo + min_span
     return [float(lo), float(hi)]
-
-
-def _perf_log(label: str, start_time: float, **fields) -> None:
-    """Emit callback timing metrics when profiling is enabled.
-
-    Args:
-        label: Metric label used in the emitted log message.
-        start_time: Timer start from ``time.perf_counter()``.
-        **fields: Extra key-value metadata appended to the message.
-
-    Returns:
-        None. Logging is skipped unless ``CHIPMUNK_PROFILE=1``.
-    """
-    if not _PROFILE_PERF:
-        return
-
-    elapsed_ms = (time.perf_counter() - start_time) * 1000
-    details = " ".join(f"{k}={v}" for k, v in fields.items())
-    msg = f"perf {label} elapsed_ms={elapsed_ms:.1f}"
-    if details:
-        msg = f"{msg} {details}"
-    _LOGGER.info(msg)
 
 
 def create_app() -> Dash:
@@ -252,23 +218,14 @@ def create_app() -> Dash:
         return recent_opts, older_opts
 
     # -- helpers --------------------------------------------------------------
-    def _plot_height(gid: str) -> str:
-        """Return per-panel graph height with a sensible default."""
-        return _PLOT_H_BY_ID.get(gid, _PLOT_H_DEFAULT)
-
     def _graph(gid: str) -> dcc.Graph:
-        """Create a standardized graph component used in dashboard rows.
-
-        Args:
-            gid: Dash component id for the graph.
-
-        Returns:
-            A configured ``dcc.Graph`` with shared sizing and display settings.
-        """
+        """Create a standardized graph component used in dashboard rows."""
+        graph_class = "dashboard-graph"
+        if gid in _TALL_GRAPH_IDS:
+            graph_class = f"{graph_class} dashboard-graph--tall"
         return dcc.Graph(
             id=gid,
-            className="dashboard-graph",
-            style={"height": _plot_height(gid), "width": "100%"},
+            className=graph_class,
             config={"displayModeBar": False},
         )
 
@@ -302,19 +259,15 @@ def create_app() -> Dash:
             },
         )
 
-    def _apply_split_toggle(
+    def _apply_button_toggle(
         fig: go.Figure,
-        combined_idx: list[int],
-        split_idx: list[int],
-        trace_count: int,
+        off_visible: list[bool],
+        on_visible: list[bool],
         label: str,
+        *,
+        yaxis2: dict[str, Any] | None = None,
     ) -> None:
-        """Apply a consistent single-button aggregate/split toggle."""
-        if not combined_idx or not split_idx:
-            return
-        off_visible = [idx in combined_idx for idx in range(trace_count)]
-        on_visible = [idx in split_idx for idx in range(trace_count)]
-        fig.update_layout(
+        layout_kw: dict[str, Any] = dict(
             updatemenus=[
                 dict(
                     type="buttons",
@@ -339,6 +292,23 @@ def create_app() -> Dash:
                 )
             ]
         )
+        if yaxis2 is not None:
+            layout_kw["yaxis2"] = yaxis2
+        fig.update_layout(**layout_kw)
+
+    def _apply_split_toggle(
+        fig: go.Figure,
+        combined_idx: list[int],
+        split_idx: list[int],
+        trace_count: int,
+        label: str,
+    ) -> None:
+        """Apply a consistent single-button aggregate/split toggle."""
+        if not combined_idx or not split_idx:
+            return
+        off_visible = [idx in combined_idx for idx in range(trace_count)]
+        on_visible = [idx in split_idx for idx in range(trace_count)]
+        _apply_button_toggle(fig, off_visible, on_visible, label)
 
     def _kde_line_xy(
         values: list[float], points: int = 128
@@ -437,27 +407,6 @@ def create_app() -> Dash:
     _init_recent_opts, _init_older_opts = _build_subject_options(
         subjects, recent_subjects
     )
-    sidebar_style = {
-        "padding": "16px",
-        "background": _THEME["panel"],
-        "display": "flex",
-        "flexDirection": "column",
-    }
-    main_style = {
-        "flex": 1,
-        "display": "flex",
-        "flexDirection": "column",
-        "overflowY": "auto",
-        "background": _THEME["bg"],
-    }
-    root_style = {
-        "fontFamily": "IBM Plex Sans, sans-serif",
-        "padding": "12px",
-        "background": _THEME["bg"],
-        "color": _THEME["text"],
-    }
-    header_style: dict[str, str] = {}
-    toggle_style: dict[str, str] = {}
     sidebar = html.Div(
         [
             html.Label("Subjects", style={"fontWeight": "bold"}),
@@ -576,7 +525,6 @@ def create_app() -> Dash:
         ],
         id="dashboard-sidebar",
         className="dashboard-sidebar",
-        style=sidebar_style,
     )
 
     # -- content sections -----------------------------------------------------
@@ -657,7 +605,6 @@ def create_app() -> Dash:
         [single_section, multi_section],
         id="dashboard-main",
         className="dashboard-main",
-        style=main_style,
     )
 
     app.layout = html.Div(
@@ -680,14 +627,12 @@ def create_app() -> Dash:
                         className="sidebar-toggle-button",
                         type="button",
                         title="Hide sidebar",
-                        style=toggle_style,
                         **{"aria-pressed": "false"},
                         **{"aria-label": "Hide sidebar"},
                     ),
                 ],
                 id="dashboard-header",
                 className="dashboard-header",
-                style=header_style,
             ),
             html.Div(
                 [
@@ -700,18 +645,13 @@ def create_app() -> Dash:
         ],
         id="dashboard-root",
         className="dashboard-root",
-        style=root_style,
     )
 
     # -- callbacks ------------------------------------------------------------
 
     @app.callback(
         Output("sidebar-collapsed", "data"),
-        Output("dashboard-root", "style"),
-        Output("dashboard-header", "style"),
-        Output("dashboard-sidebar", "style"),
-        Output("dashboard-main", "style"),
-        Output("sidebar-toggle-button", "style"),
+        Output("dashboard-root", "className"),
         Output("sidebar-toggle-button", "children"),
         Output("sidebar-toggle-button", "title"),
         Output("sidebar-toggle-button", "aria-label"),
@@ -720,46 +660,25 @@ def create_app() -> Dash:
         State("sidebar-collapsed", "data"),
     )
     def _toggle_sidebar(n_clicks, is_collapsed):
-        """Toggle the sidebar as explicit Dash state."""
         collapsed = bool(is_collapsed)
         if n_clicks:
             collapsed = not collapsed
-
-        if not collapsed:
+        if collapsed:
             return (
-                False,
-                root_style,
-                header_style,
-                sidebar_style,
-                main_style,
-                toggle_style,
-                "⬅️",
-                "Hide sidebar",
-                "Hide sidebar",
-                "false",
+                True,
+                "dashboard-root dashboard-root--sidebar-collapsed",
+                "➡️",
+                "Show sidebar",
+                "Show sidebar",
+                "true",
             )
-
-        collapsed_root_style = {**root_style, "padding": "0"}
-        collapsed_header_style = {**header_style, "padding": "12px 12px 0"}
-        collapsed_sidebar_style = {**sidebar_style, "display": "none"}
-        collapsed_main_style = {
-            **main_style,
-            "flex": "1 1 100%",
-            "paddingLeft": "0",
-            "paddingRight": "0",
-            "width": "100%",
-        }
         return (
-            True,
-            collapsed_root_style,
-            collapsed_header_style,
-            collapsed_sidebar_style,
-            collapsed_main_style,
-            toggle_style,
-            "➡️",
-            "Show sidebar",
-            "Show sidebar",
-            "true",
+            False,
+            "dashboard-root",
+            "⬅️",
+            "Hide sidebar",
+            "Hide sidebar",
+            "false",
         )
 
     def _sessions_on_date(sessions_list: list[str], date_val: str) -> str | None:
@@ -1034,7 +953,7 @@ def create_app() -> Dash:
 
         if not valid_subjects:
             e = _empty_fig()
-            _perf_log("_update_single", start, subjects=0)
+            perf_log("_update_single", start, subjects=0)
             return tuple(e for _ in range(n))
 
         multi = len(subjects) > 1
@@ -1994,8 +1913,6 @@ def create_app() -> Dash:
                 tct_water_idx.append(tct_trace_count)
                 tct_trace_count += 1
 
-            water_cum_x = sm.get("water_cum_x", [])
-            water_cum_total = sm.get("water_cum_total_ul", [])
             water_cum_left = sm.get("water_cum_left_ul", [])
             water_cum_right = sm.get("water_cum_right_ul", [])
             if water_cum_x and water_cum_total:
@@ -2357,7 +2274,11 @@ def create_app() -> Dash:
             counts_and_water = [
                 idx in (tct_count_idx + tct_water_idx) for idx in range(tct_trace_count)
             ]
-            fig_tct.update_layout(
+            _apply_button_toggle(
+                fig_tct,
+                counts_only,
+                counts_and_water,
+                "Water",
                 yaxis2=dict(
                     title="water (µL)",
                     overlaying="y",
@@ -2365,29 +2286,6 @@ def create_app() -> Dash:
                     rangemode="tozero",
                     showgrid=False,
                 ),
-                updatemenus=[
-                    dict(
-                        type="buttons",
-                        active=-1,
-                        direction="left",
-                        x=1.0,
-                        y=1.18,
-                        xanchor="right",
-                        yanchor="top",
-                        showactive=True,
-                        bgcolor=_THEME["card"],
-                        bordercolor=_THEME["border"],
-                        font=dict(size=11, color=_THEME["text"]),
-                        buttons=[
-                            dict(
-                                label="Water",
-                                method="restyle",
-                                args=[{"visible": counts_and_water}],
-                                args2=[{"visible": counts_only}],
-                            )
-                        ],
-                    )
-                ],
             )
         _layout(
             fig_wc,
@@ -2408,7 +2306,7 @@ def create_app() -> Dash:
             fig_itir, itir_combined_idx, itir_split_idx, itir_trace_count, "Outcome"
         )
 
-        _perf_log("_update_single", start, subjects=len(valid_subjects), multi=multi)
+        perf_log("_update_single", start, subjects=len(valid_subjects), multi=multi)
         return (
             fig_fc,
             fig_pr,
@@ -2547,7 +2445,7 @@ def create_app() -> Dash:
 
         if not subjects:
             e = _empty_fig()
-            _perf_log("_update_multi", start, subjects=0)
+            perf_log("_update_multi", start, subjects=0)
             return tuple(e for _ in range(n))
 
         do_smooth = "smooth" in (smooth_vals or [])
@@ -2819,7 +2717,7 @@ def create_app() -> Dash:
             ),
         )
 
-        _perf_log(
+        perf_log(
             "_update_multi",
             start,
             subjects=len(subjects),

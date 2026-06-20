@@ -9,105 +9,33 @@ from functools import wraps
 import threading
 import time
 import os
-import logging
 from datetime import date, timedelta
-from typing import Any, Callable, Protocol, cast
+from typing import Any, Callable, cast
 
-
-class _CacheClearCallable(Protocol):
-    """Callable protocol for wrapped functions exposing ``cache_clear``."""
-
-    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
-
-    def cache_clear(self) -> None: ...
+from .perf import perf_log
 
 
 _DB_LOCK = threading.RLock()
 _CACHE_TTL_SECONDS = int(os.getenv("CHIPMUNK_CACHE_TTL_SECONDS", "1800"))
-_PROFILE_PERF = os.getenv("CHIPMUNK_PROFILE", "0") == "1"
 _PREWARM_ENABLED = os.getenv("CHIPMUNK_PREWARM", "1") == "1"
-_LOGGER = logging.getLogger(__name__)
 _PREWARM_LOCK = threading.Lock()
 _PREWARM_INFLIGHT: set[tuple[tuple[str, ...], int, str | None]] = set()
 
 
-def _perf_log(label: str, start_time: float, **fields) -> None:
-    """Emit data-layer timing metrics when profiling is enabled.
-
-    Args:
-        label: Metric label used in the emitted log message.
-        start_time: Timer start from ``time.perf_counter()``.
-        **fields: Extra key-value metadata appended to the message.
-
-    Returns:
-        None. Logging is skipped unless ``CHIPMUNK_PROFILE=1``.
-    """
-    if not _PROFILE_PERF:
-        return
-
-    elapsed_ms = (time.perf_counter() - start_time) * 1000
-    details = " ".join(f"{k}={v}" for k, v in fields.items())
-    msg = f"perf {label} elapsed_ms={elapsed_ms:.1f}"
-    if details:
-        msg = f"{msg} {details}"
-    _LOGGER.info(msg)
-
-
 def _ttl_lru_cache(
     maxsize: int = 128, ttl_seconds: int = _CACHE_TTL_SECONDS
-) -> Callable[[Callable[..., Any]], _CacheClearCallable]:
-    """Build a decorator that combines LRU caching with TTL invalidation.
-
-    Args:
-        maxsize: Maximum number of cache keys retained by ``lru_cache``.
-        ttl_seconds: Cache lifetime per time bucket in seconds.
-
-    Returns:
-        A decorator that memoizes function outputs by call arguments and a
-        hidden TTL bucket. Cache entries automatically expire when the time
-        bucket changes.
-    """
-
-    def decorator(func: Callable[..., Any]) -> _CacheClearCallable:
-        """Wrap a function with TTL-aware memoization.
-
-        Args:
-            func: Function to memoize.
-
-        Returns:
-            A wrapper that reuses cached results within a TTL bucket.
-        """
-
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @lru_cache(maxsize=maxsize)
         def _cached(__ttl_bucket: int, *args: Any, **kwargs: Any) -> Any:
-            """Execute the original function for a specific TTL cache bucket.
-
-            Args:
-                *args: Positional arguments forwarded to ``func``.
-                __ttl_bucket: Hidden cache-busting value derived from wall time.
-                **kwargs: Keyword arguments forwarded to ``func``.
-
-            Returns:
-                The result of calling ``func(*args, **kwargs)``.
-            """
             return func(*args, **kwargs)
 
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            """Resolve the active TTL bucket and fetch a cached function value.
-
-            Args:
-                *args: Positional arguments forwarded to the cached function.
-                **kwargs: Keyword arguments forwarded to the cached function.
-
-            Returns:
-                The cached or newly computed function result.
-            """
-            ttl_bucket = int(time.time() // ttl_seconds)
-            return _cached(ttl_bucket, *args, **kwargs)
+            return _cached(int(time.time() // ttl_seconds), *args, **kwargs)
 
         cast(Any, wrapper).cache_clear = _cached.cache_clear
-        return cast(_CacheClearCallable, wrapper)
+        return wrapper
 
     return decorator
 
@@ -181,11 +109,11 @@ def get_subject_data(subject: str) -> pd.DataFrame:
         try:
             rows = rel.fetch(*fields, order_by="session_name", as_dict=True)
             df = pd.DataFrame(rows)
-            _perf_log("get_subject_data", start, subject=subject, rows=len(df))
+            perf_log("get_subject_data", start, subject=subject, rows=len(df))
             return df
         except Exception:
             df = pd.DataFrame(rel)
-            _perf_log("get_subject_data_fallback", start, subject=subject, rows=len(df))
+            perf_log("get_subject_data_fallback", start, subject=subject, rows=len(df))
             return df
 
 
@@ -270,7 +198,7 @@ def get_trials_for_sessions(
     grouped: dict[str, pd.DataFrame] = {}
     for session, session_df in df.groupby("session_name", sort=False):
         grouped[str(session)] = session_df.reset_index(drop=True)
-    _perf_log(
+    perf_log(
         "get_trials_for_sessions",
         start,
         subject=subject,
@@ -324,7 +252,7 @@ def get_wait_medians_for_sessions(
 
     grouped = valid.groupby("session_name", sort=False)["wait"].median().to_dict()
     out = {str(k): float(v) for k, v in grouped.items()}
-    _perf_log(
+    perf_log(
         "get_wait_medians_for_sessions",
         start,
         subject=subject,
@@ -425,7 +353,7 @@ def prewarm_multisession_cache(
         finally:
             with _PREWARM_LOCK:
                 _PREWARM_INFLIGHT.discard(key)
-            _perf_log(
+            perf_log(
                 "prewarm_multisession_cache",
                 start,
                 subjects=len(key[0]),
@@ -500,7 +428,7 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     start = time.perf_counter()
     trials = get_session_trials(subject, session_name)
     if trials.empty:
-        _perf_log(
+        perf_log(
             "session_metrics", start, subject=subject, session=session_name, rows=0
         )
         return None
@@ -1000,7 +928,6 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         water_cum_total_ul=water_cum_total.astype(float).tolist(),
         water_cum_left_ul=water_cum_left.astype(float).tolist(),
         water_cum_right_ul=water_cum_right.astype(float).tolist(),
-        water_side_totals=water_side_totals_ul,
         water_side_totals_ul=water_side_totals_ul,
         water_cum_time_x=water_cum_time_x,
         iti_times=iti_vals.tolist(),
@@ -1052,7 +979,7 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         ew_roll_x=ew_roll_x,  # rolling EW x
         ew_roll_y=ew_roll_y,  # rolling EW y
     )
-    _perf_log(
+    perf_log(
         "session_metrics",
         start,
         subject=subject,
@@ -1090,7 +1017,7 @@ def multisession_metrics(
     start = time.perf_counter()
     df = get_subject_data(subject).copy()
     if df.empty:
-        _perf_log("multisession_metrics", start, subject=subject, sessions=0)
+        perf_log("multisession_metrics", start, subject=subject, sessions=0)
         return None
 
     df = df.sort_values("session_name")
@@ -1118,7 +1045,7 @@ def multisession_metrics(
         if not df.empty:
             anchor_dt = df["session_dt"].iloc[-1]
         else:  # pragma: no cover — df can't be empty here (already checked above)
-            _perf_log("multisession_metrics", start, subject=subject, sessions=0)
+            perf_log("multisession_metrics", start, subject=subject, sessions=0)
             return None
 
     # Take the last N sessions
@@ -1242,7 +1169,7 @@ def multisession_metrics(
 
     out["x"] = x_axis
     out["session_dates"] = session_dates
-    _perf_log(
+    perf_log(
         "multisession_metrics",
         start,
         subject=subject,
