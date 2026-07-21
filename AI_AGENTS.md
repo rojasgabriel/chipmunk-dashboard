@@ -1,7 +1,7 @@
 # AI Agent Guide
 
-Repo-specific rules only. Broader project context and handoffs belong in the
-wiki, not here.
+Repo-specific rules only. Use Notion for project planning and live Git/GitHub
+state for current work.
 
 ## Rules
 
@@ -12,6 +12,11 @@ wiki, not here.
 - Keep callback `Output(...)` order aligned with callback return tuples.
 - Do not loosen `setuptools < 80` without concrete validation.
 - If a change adds a plot, use `.agents/skills/add-plot/SKILL.md`.
+- Treat incorrect trials as `with_choice == 1` and `rewarded == 0`; do not
+  derive them from `punished`.
+- Keep the trial-count pacing x-axis in elapsed session minutes. Preserve trial
+  number in hover data, and use `water_cum_time_x` for its water overlay.
+- Keep debug and fixture UI paths usable without a live database.
 
 ## Checks
 
