@@ -2737,4 +2737,10 @@ def create_app() -> Dash:
             fig_tt,
         )
 
+    cast(Any, app).chipmunk_renderers = {
+        "single": _update_single,
+        "settings": _update_overview_boxes,
+        "multi": _update_multi,
+    }
+
     return app

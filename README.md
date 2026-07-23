@@ -49,6 +49,20 @@ uv run chipmunk-dashboard run --port 9000
 uv run chipmunk-dashboard run --debug
 ```
 
+## Using the labdata dashboard
+
+When this package is installed in the same environment as `labdata[dashboard]`,
+the configured Chipmunk labdata plugin adds a native **Chipmunk** page to the
+Streamlit sidebar. Start the shared dashboard normally:
+
+```bash
+labdata dashboard
+```
+
+The Streamlit page reuses the standalone Dash app's figure renderers, including
+the Overview, Timing, and Multi Session plots. The standalone Dash app remains
+available as a separate entry point.
+
 ## Remote Access
 
 On a remote machine:
