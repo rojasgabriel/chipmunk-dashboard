@@ -208,20 +208,24 @@ class TestDataUtilities(unittest.TestCase):
         )
 
     def test_perf_log_skips_when_profiling_disabled(self) -> None:
+        import chipmunk_dashboard.perf as perf_mod
+
         with (
-            mock.patch.object(self.data, "_PROFILE_PERF", False),
-            mock.patch.object(self.data._LOGGER, "info") as log_info,
+            mock.patch.object(perf_mod, "_PROFILE_PERF", False),
+            mock.patch.object(perf_mod._LOGGER, "info") as log_info,
         ):
-            self.data._perf_log("metric", 0.0, key="value")
+            perf_mod.perf_log("metric", 0.0, key="value")
         log_info.assert_not_called()
 
     def test_perf_log_logs_when_profiling_enabled(self) -> None:
+        import chipmunk_dashboard.perf as perf_mod
+
         with (
-            mock.patch.object(self.data, "_PROFILE_PERF", True),
+            mock.patch.object(perf_mod, "_PROFILE_PERF", True),
             mock.patch.object(self.data.time, "perf_counter", return_value=1.25),
-            mock.patch.object(self.data._LOGGER, "info") as log_info,
+            mock.patch.object(perf_mod._LOGGER, "info") as log_info,
         ):
-            self.data._perf_log("metric", 1.0, key="value")
+            perf_mod.perf_log("metric", 1.0, key="value")
         log_info.assert_called_once()
         self.assertIn("perf metric", log_info.call_args[0][0])
         self.assertIn("key=value", log_info.call_args[0][0])
@@ -296,7 +300,7 @@ class TestDataUtilities(unittest.TestCase):
         with (
             mock.patch.object(self.data.DecisionTask, "TrialSet", trialset_cls),
             mock.patch.object(self.data.pd, "DataFrame", side_effect=lambda x: x),
-            mock.patch.object(self.data, "_perf_log") as perf_log,
+            mock.patch.object(self.data, "perf_log") as perf_log,
         ):
             result = self.data.get_subject_data("subject-a")
 
@@ -321,7 +325,7 @@ class TestDataUtilities(unittest.TestCase):
             mock.patch.object(
                 self.data.pd, "DataFrame", side_effect=lambda x: {"source": x}
             ),
-            mock.patch.object(self.data, "_perf_log") as perf_log,
+            mock.patch.object(self.data, "perf_log") as perf_log,
         ):
             result = self.data.get_subject_data("subject-b")
 
@@ -406,7 +410,7 @@ class TestDataUtilities(unittest.TestCase):
             mock.patch.object(
                 self.data, "get_session_trials", return_value=_EmptyTrials()
             ),
-            mock.patch.object(self.data, "_perf_log") as perf_log,
+            mock.patch.object(self.data, "perf_log") as perf_log,
         ):
             result = self.data.session_metrics("subject-a", "20260101_010101")
 
@@ -427,7 +431,7 @@ class TestDataUtilities(unittest.TestCase):
             mock.patch.object(
                 self.data, "get_subject_data", return_value=_EmptySubjectData()
             ),
-            mock.patch.object(self.data, "_perf_log") as perf_log,
+            mock.patch.object(self.data, "perf_log") as perf_log,
         ):
             result = self.data.multisession_metrics("subject-a", sessions_back=5)
 
