@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import plotly.graph_objects as go
 import pytest
+from streamlit.testing.v1 import AppTest
 
 from chipmunk_dashboard.streamlit_page import (
     _MULTI_FIGURE_IDS,
@@ -47,6 +48,29 @@ def test_subject_options_can_show_recent_or_all_mice():
         "GRB101",
     ]
     assert _subject_options(subjects, recent, recent_only=False) == subjects
+
+
+def test_streamlit_dashboard_renders_and_filters_recent_mice(monkeypatch):
+    monkeypatch.setenv("CHIPMUNK_UI_DEBUG", "1")
+    source = (
+        "from chipmunk_dashboard.streamlit_page import render_dashboard\n"
+        "render_dashboard()\n"
+    )
+
+    app = AppTest.from_string(source).run(timeout=30)
+
+    assert not app.exception
+    assert [title.value for title in app.title] == ["Chipmunk Dashboard"]
+    assert len(app.get("plotly_chart")) == 25
+    assert app.toggle[0].label == "Recent mice only"
+    assert app.toggle[0].value is True
+    recent_options = app.multiselect[0].options
+
+    app.toggle[0].set_value(False).run(timeout=30)
+
+    assert not app.exception
+    assert len(app.multiselect[0].options) > len(recent_options)
+    assert len(app.get("plotly_chart")) == 25
 
 
 def test_clear_data_caches():
