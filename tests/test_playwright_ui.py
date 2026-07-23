@@ -18,6 +18,7 @@ from unittest import mock
 import pytest
 import numpy as np
 from PIL import Image
+from playwright.sync_api import expect
 from werkzeug.serving import make_server
 
 if os.getenv("RUN_PLAYWRIGHT") != "1":
@@ -280,20 +281,18 @@ def test_sidebar_toggle_button_collapses_sidebar(page, dashboard_url):
     assert button.inner_text() == "⬅️"
 
     button.click()
-    page.wait_for_timeout(100)
 
-    assert sidebar.is_hidden()
-    assert button.get_attribute("title") == "Show sidebar"
-    assert button.inner_text() == "➡️"
+    expect(sidebar).to_be_hidden()
+    expect(button).to_have_attribute("title", "Show sidebar")
+    expect(button).to_have_text("➡️")
     assert main.bounding_box()["x"] == 0
     assert main.bounding_box()["width"] == page.viewport_size["width"]
 
     button.click()
-    page.wait_for_timeout(100)
 
-    assert sidebar.is_visible()
-    assert button.get_attribute("title") == "Hide sidebar"
-    assert button.inner_text() == "⬅️"
+    expect(sidebar).to_be_visible()
+    expect(button).to_have_attribute("title", "Hide sidebar")
+    expect(button).to_have_text("⬅️")
 
 
 def test_overview_layout_hash_regression(page, dashboard_url):
