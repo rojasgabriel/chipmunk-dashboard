@@ -89,7 +89,7 @@ Do not loosen `setuptools < 80` without a real reason and validation.
 
 ## AI agents
 
-Repo-specific agent rules live in `AI_AGENTS.md`.
+Repo-specific agent rules live in `AGENTS.md`.
 
 If you use an agent, point it there first, keep the task narrow, and review the
 diff yourself before opening a PR.
