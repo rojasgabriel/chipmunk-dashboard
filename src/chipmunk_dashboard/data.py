@@ -1,19 +1,19 @@
 """Data fetching and metric computation."""
 
-from labdata.schema import DecisionTask, Watering  # type: ignore
-from chipmunk import Chipmunk  # type: ignore
-import pandas as pd
-import numpy as np
-from functools import lru_cache
-from functools import wraps
+import os
 import threading
 import time
-import os
+from collections.abc import Callable
 from datetime import date, timedelta
-from typing import Any, Callable, cast
+from functools import lru_cache, wraps
+from typing import Any, cast
+
+import numpy as np
+import pandas as pd
+from chipmunk import Chipmunk  # type: ignore
+from labdata.schema import DecisionTask, Watering  # type: ignore
 
 from .perf import perf_log
-
 
 _DB_LOCK = threading.RLock()
 _CACHE_TTL_SECONDS = int(os.getenv("CHIPMUNK_CACHE_TTL_SECONDS", "1800"))
@@ -27,7 +27,7 @@ def _ttl_lru_cache(
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @lru_cache(maxsize=maxsize)
-        def _cached(__ttl_bucket: int, *args: Any, **kwargs: Any) -> Any:
+        def _cached(ttl_bucket: int, /, *args: Any, **kwargs: Any) -> Any:
             return func(*args, **kwargs)
 
         @wraps(func)
@@ -73,7 +73,7 @@ def get_subjects_with_recent_sessions(days: int = 7) -> set[str]:
     Side Effects:
         Executes a database query under ``_DB_LOCK``.
     """
-    cutoff = (date.today() - timedelta(days=days)).strftime("%Y%m%d")
+    cutoff = (date.today() - timedelta(days=days)).strftime("%Y%m%d")  # noqa: DTZ011 — lab-local calendar day
     with _DB_LOCK:
         recent_trials = DecisionTask.TrialSet() & f"session_name >= '{cutoff}'"
         subjects = recent_trials.fetch("subject_name")
@@ -111,7 +111,7 @@ def get_subject_data(subject: str) -> pd.DataFrame:
             df = pd.DataFrame(rows)
             perf_log("get_subject_data", start, subject=subject, rows=len(df))
             return df
-        except Exception:
+        except Exception:  # noqa: BLE001 — DataJoint fetch failure surface is broad
             df = pd.DataFrame(rel)
             perf_log("get_subject_data_fallback", start, subject=subject, rows=len(df))
             return df
@@ -898,87 +898,87 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         float(water_cum_total[-1]) if water_cum_total.size else 0.0,
     ]
 
-    out = dict(
-        stims=ustims.tolist(),
-        n_correct=n_correct,
-        n_incorrect=n_incorrect,
-        n_ew=n_ew,
-        n_no_choice=n_no_choice,
-        p_right=p_right,
-        median_rt=median_rt,
-        rts=valid_rts.tolist(),
-        rt_trial_nums=rt_trial_nums.tolist(),
-        rt_vals=rt_vals.tolist(),
-        rt_roll_x=rt_roll_x,
-        rt_roll_y=rt_roll_y,
-        response_trial_nums=response_trial_nums.astype(int).tolist(),
-        response_trial_nums_left=response_trial_nums_left.astype(int).tolist(),
-        response_trial_nums_right=response_trial_nums_right.astype(int).tolist(),
-        response_roll_x=response_roll_x,
-        response_roll_y=response_roll_y,
-        response_roll_left_x=response_roll_left_x,
-        response_roll_left_y=response_roll_left_y,
-        response_roll_right_x=response_roll_right_x,
-        response_roll_right_y=response_roll_right_y,
-        response_times=response_times.tolist(),
-        response_times_left=response_left.tolist(),
-        response_times_right=response_right.tolist(),
-        session_settings_lines=session_settings_lines,
-        water_cum_x=water_cum_x,
-        water_cum_total_ul=water_cum_total.astype(float).tolist(),
-        water_cum_left_ul=water_cum_left.astype(float).tolist(),
-        water_cum_right_ul=water_cum_right.astype(float).tolist(),
-        water_side_totals_ul=water_side_totals_ul,
-        water_cum_time_x=water_cum_time_x,
-        iti_times=iti_vals.tolist(),
-        iti_times_after_correct=iti_after_correct,
-        iti_times_after_incorrect=iti_after_incorrect,
-        iti_times_after_ew=iti_after_ew,
-        iti_times_after_no_choice=iti_after_no_choice,
-        iti_roll_x=iti_roll_x,
-        iti_roll_y=iti_roll_y,
-        iti_roll_correct_x=iti_roll_correct_x,
-        iti_roll_correct_y=iti_roll_correct_y,
-        iti_roll_incorrect_x=iti_roll_incorrect_x,
-        iti_roll_incorrect_y=iti_roll_incorrect_y,
-        iti_roll_ew_x=iti_roll_ew_x,
-        iti_roll_ew_y=iti_roll_ew_y,
-        iti_roll_no_choice_x=iti_roll_no_choice_x,
-        iti_roll_no_choice_y=iti_roll_no_choice_y,
-        trial_count_x=trial_count_x,
-        trial_count_trial_nums=trial_count_trial_nums,
-        trial_count_y=trial_count_vals.astype(float).tolist(),
-        init_times=init_vals.tolist(),
-        init_trial_nums=init_trial_nums.tolist(),
-        init_roll_x=init_roll_x,
-        init_roll_y=init_roll_y,
-        wait_times=wait_actual.tolist(),
-        wait_min_times=wait_min.tolist(),
-        wait_delta_times=wait_delta.tolist(),
-        wait_delta_left_times=wait_delta_left.tolist(),
-        wait_delta_right_times=wait_delta_right.tolist(),
-        wait_trial_nums=wait_trial_nums.tolist(),
-        wait_trial_nums_left=wait_trial_nums_left.tolist(),
-        wait_trial_nums_right=wait_trial_nums_right.tolist(),
-        wait_delta_x=wait_delta_x,
-        wait_delta_y=wait_delta_y,
-        wait_delta_left_x=wait_delta_left_roll_x,
-        wait_delta_left_y=wait_delta_left_roll_y,
-        wait_delta_right_x=wait_delta_right_roll_x,
-        wait_delta_right_y=wait_delta_right_roll_y,
-        wait_roll_x=wait_roll_x,
-        wait_roll_y=wait_roll_y,
-        wait_times_left=wait_left.tolist(),
-        wait_times_right=wait_right.tolist(),
-        wait_left_x=wait_left_roll_x,
-        wait_left_y=wait_left_roll_y,
-        wait_right_x=wait_right_roll_x,
-        wait_right_y=wait_right_roll_y,
-        slide_x=slide_x,  # rolling performance x
-        slide_y=slide_y,  # rolling performance y
-        ew_roll_x=ew_roll_x,  # rolling EW x
-        ew_roll_y=ew_roll_y,  # rolling EW y
-    )
+    out = {
+        "stims": ustims.tolist(),
+        "n_correct": n_correct,
+        "n_incorrect": n_incorrect,
+        "n_ew": n_ew,
+        "n_no_choice": n_no_choice,
+        "p_right": p_right,
+        "median_rt": median_rt,
+        "rts": valid_rts.tolist(),
+        "rt_trial_nums": rt_trial_nums.tolist(),
+        "rt_vals": rt_vals.tolist(),
+        "rt_roll_x": rt_roll_x,
+        "rt_roll_y": rt_roll_y,
+        "response_trial_nums": response_trial_nums.astype(int).tolist(),
+        "response_trial_nums_left": response_trial_nums_left.astype(int).tolist(),
+        "response_trial_nums_right": response_trial_nums_right.astype(int).tolist(),
+        "response_roll_x": response_roll_x,
+        "response_roll_y": response_roll_y,
+        "response_roll_left_x": response_roll_left_x,
+        "response_roll_left_y": response_roll_left_y,
+        "response_roll_right_x": response_roll_right_x,
+        "response_roll_right_y": response_roll_right_y,
+        "response_times": response_times.tolist(),
+        "response_times_left": response_left.tolist(),
+        "response_times_right": response_right.tolist(),
+        "session_settings_lines": session_settings_lines,
+        "water_cum_x": water_cum_x,
+        "water_cum_total_ul": water_cum_total.astype(float).tolist(),
+        "water_cum_left_ul": water_cum_left.astype(float).tolist(),
+        "water_cum_right_ul": water_cum_right.astype(float).tolist(),
+        "water_side_totals_ul": water_side_totals_ul,
+        "water_cum_time_x": water_cum_time_x,
+        "iti_times": iti_vals.tolist(),
+        "iti_times_after_correct": iti_after_correct,
+        "iti_times_after_incorrect": iti_after_incorrect,
+        "iti_times_after_ew": iti_after_ew,
+        "iti_times_after_no_choice": iti_after_no_choice,
+        "iti_roll_x": iti_roll_x,
+        "iti_roll_y": iti_roll_y,
+        "iti_roll_correct_x": iti_roll_correct_x,
+        "iti_roll_correct_y": iti_roll_correct_y,
+        "iti_roll_incorrect_x": iti_roll_incorrect_x,
+        "iti_roll_incorrect_y": iti_roll_incorrect_y,
+        "iti_roll_ew_x": iti_roll_ew_x,
+        "iti_roll_ew_y": iti_roll_ew_y,
+        "iti_roll_no_choice_x": iti_roll_no_choice_x,
+        "iti_roll_no_choice_y": iti_roll_no_choice_y,
+        "trial_count_x": trial_count_x,
+        "trial_count_trial_nums": trial_count_trial_nums,
+        "trial_count_y": trial_count_vals.astype(float).tolist(),
+        "init_times": init_vals.tolist(),
+        "init_trial_nums": init_trial_nums.tolist(),
+        "init_roll_x": init_roll_x,
+        "init_roll_y": init_roll_y,
+        "wait_times": wait_actual.tolist(),
+        "wait_min_times": wait_min.tolist(),
+        "wait_delta_times": wait_delta.tolist(),
+        "wait_delta_left_times": wait_delta_left.tolist(),
+        "wait_delta_right_times": wait_delta_right.tolist(),
+        "wait_trial_nums": wait_trial_nums.tolist(),
+        "wait_trial_nums_left": wait_trial_nums_left.tolist(),
+        "wait_trial_nums_right": wait_trial_nums_right.tolist(),
+        "wait_delta_x": wait_delta_x,
+        "wait_delta_y": wait_delta_y,
+        "wait_delta_left_x": wait_delta_left_roll_x,
+        "wait_delta_left_y": wait_delta_left_roll_y,
+        "wait_delta_right_x": wait_delta_right_roll_x,
+        "wait_delta_right_y": wait_delta_right_roll_y,
+        "wait_roll_x": wait_roll_x,
+        "wait_roll_y": wait_roll_y,
+        "wait_times_left": wait_left.tolist(),
+        "wait_times_right": wait_right.tolist(),
+        "wait_left_x": wait_left_roll_x,
+        "wait_left_y": wait_left_roll_y,
+        "wait_right_x": wait_right_roll_x,
+        "wait_right_y": wait_right_roll_y,
+        "slide_x": slide_x,  # rolling performance x
+        "slide_y": slide_y,  # rolling performance y
+        "ew_roll_x": ew_roll_x,  # rolling EW x
+        "ew_roll_y": ew_roll_y,  # rolling EW y
+    }
     perf_log(
         "session_metrics",
         start,
@@ -1063,7 +1063,7 @@ def multisession_metrics(
             else pd.Timestamp(d["date"].iloc[i]).isoformat(sep=" ")
             for i, v in enumerate(d["session_dt"].tolist())
         ]
-    except Exception:  # pragma: no cover — defensive fallback for unexpected types
+    except Exception:  # noqa: BLE001  # pragma: no cover — defensive fallback for unexpected types
         x_axis = [
             pd.Timestamp(v).isoformat(sep=" ") if pd.notna(v) else str(name)
             for v, name in zip(
@@ -1138,17 +1138,17 @@ def multisession_metrics(
     ]
 
     # --- Smoothing Logic ---
-    res = dict(
-        perf_easy=np.array(d["performance_easy"]),
-        ew_rate=np.array(ew_rate),
-        n_with_choice=np.array(d["n_with_choice"]),
-        side_bias=np.array(side_bias),
-        median_init=np.array(median_init),
-        median_rt=np.array(median_rt_list),
-        median_wait=np.array(median_wait_list),
-        water=np.array(water),
-        training_time_hours=np.array(training_time_hours),
-    )
+    res = {
+        "perf_easy": np.array(d["performance_easy"]),
+        "ew_rate": np.array(ew_rate),
+        "n_with_choice": np.array(d["n_with_choice"]),
+        "side_bias": np.array(side_bias),
+        "median_init": np.array(median_init),
+        "median_rt": np.array(median_rt_list),
+        "median_wait": np.array(median_wait_list),
+        "water": np.array(water),
+        "training_time_hours": np.array(training_time_hours),
+    }
 
     out: dict[str, list[Any]] = {}
     if smooth and smooth_window > 1:

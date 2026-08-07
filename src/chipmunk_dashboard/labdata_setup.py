@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import stat
 import tempfile
-
+from pathlib import Path
 
 PLUGIN_NAME = "chipmunk_dashboard_plugin"
 
@@ -65,7 +64,7 @@ def register_labdata_plugin(
 
     plugins = preferences.setdefault("plugins", {})
     if not isinstance(plugins, dict):
-        raise ValueError(
+        raise TypeError(
             f"labdata preferences['plugins'] must be an object: {preferences_file}"
         )
 
