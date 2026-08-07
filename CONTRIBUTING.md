@@ -9,7 +9,7 @@ Prerequisites:
 
 - `uv`
 - VPN / lab network access for live database use
-- the `chipmunk` labdata plugin in your `labdata` plugins folder
+- a configured `labdata` preferences file
 
 Install:
 
@@ -17,6 +17,7 @@ Install:
 git clone https://github.com/rojasgabriel/chipmunk-dashboard.git
 cd chipmunk-dashboard
 uv sync --all-groups
+uv run chipmunk-dashboard install-labdata
 uv run pre-commit install
 ```
 
