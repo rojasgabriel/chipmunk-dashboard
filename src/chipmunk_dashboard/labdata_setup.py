@@ -1,4 +1,4 @@
-"""Register the bundled dashboard adapter with LabData."""
+"""Register the bundled dashboard adapter with labdata."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def register_labdata_plugin(
     preferences_path: str | Path | None = None,
     plugin_path: str | Path | None = None,
 ) -> tuple[Path, bool]:
-    """Add the bundled adapter to LabData preferences.
+    """Add the bundled adapter to labdata preferences.
 
     Returns the preferences path and whether its contents changed. Existing
     plugins, including the full Chipmunk schema plugin, are left untouched.
@@ -52,13 +52,13 @@ def register_labdata_plugin(
     )
     adapter_path = Path(plugin_path).resolve() if plugin_path else _plugin_path()
     if not (adapter_path / "__init__.py").is_file():
-        raise FileNotFoundError(f"LabData plugin adapter not found: {adapter_path}")
+        raise FileNotFoundError(f"labdata plugin adapter not found: {adapter_path}")
 
     if preferences_file.exists():
         preferences = json.loads(preferences_file.read_text(encoding="utf-8"))
         if not isinstance(preferences, dict):
             raise ValueError(
-                f"LabData preferences must contain a JSON object: {preferences_file}"
+                f"labdata preferences must contain a JSON object: {preferences_file}"
             )
     else:
         preferences = {}
@@ -66,7 +66,7 @@ def register_labdata_plugin(
     plugins = preferences.setdefault("plugins", {})
     if not isinstance(plugins, dict):
         raise ValueError(
-            f"LabData preferences['plugins'] must be an object: {preferences_file}"
+            f"labdata preferences['plugins'] must be an object: {preferences_file}"
         )
 
     adapter_value = str(adapter_path)

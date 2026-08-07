@@ -45,7 +45,7 @@ def main() -> None:
     )
     sub.add_parser(
         "install-labdata",
-        help="Register the bundled dashboard tab with LabData",
+        help="Register the bundled dashboard tab with labdata",
     )
 
     args = parser.parse_args()
