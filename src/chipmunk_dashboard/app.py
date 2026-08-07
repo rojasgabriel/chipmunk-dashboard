@@ -1,16 +1,16 @@
 """Dash application — layout and callbacks."""
 
+import math
+import os
+import statistics
+import time
+from datetime import date as _date
 from importlib import import_module
 from typing import Any, cast
-import os
-import time
-import math
-import statistics
-from datetime import date as _date
 
-from dash import Dash, ctx, dcc, html, Input, Output, State
 import plotly.colors
 import plotly.graph_objects as go
+from dash import Dash, Input, Output, State, ctx, dcc, html
 
 from .perf import perf_log
 
@@ -27,12 +27,13 @@ multisession_metrics = _data.multisession_metrics
 prewarm_multisession_cache = _data.prewarm_multisession_cache
 
 COLORS = plotly.colors.qualitative.Plotly
-_MARGIN: dict[str, int] = dict(l=50, r=20, t=42, b=80)
-_CLEAN: dict[str, Any] = dict(
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)"
-)
-_AXIS_CLEAN = dict(showgrid=False, zeroline=False, tickfont=dict(color="#56606b"))
-_LEGEND: dict[str, Any] = dict(visible=False)
+_MARGIN: dict[str, int] = {"l": 50, "r": 20, "t": 42, "b": 80}
+_CLEAN: dict[str, Any] = {
+    "plot_bgcolor": "rgba(0,0,0,0)",
+    "paper_bgcolor": "rgba(0,0,0,0)",
+}
+_AXIS_CLEAN = {"showgrid": False, "zeroline": False, "tickfont": {"color": "#56606b"}}
+_LEGEND: dict[str, Any] = {"visible": False}
 _TALL_GRAPH_IDS = frozenset(
     {
         "session-perf",
@@ -52,15 +53,15 @@ _TALL_GRAPH_IDS = frozenset(
 )
 _MAX_W = "560px"  # max width per plot
 _TIMING_Y_CLIP_PCT = 95.0
-_THEME = dict(
-    bg="#f6f7fb",
-    panel="#eef1f6",
-    card="#ffffff",
-    border="#e3e7ef",
-    text="#1f2630",
-    muted="#56606b",
-    accent="#1f77b4",
-)
+_THEME = {
+    "bg": "#f6f7fb",
+    "panel": "#eef1f6",
+    "card": "#ffffff",
+    "border": "#e3e7ef",
+    "text": "#1f2630",
+    "muted": "#56606b",
+    "accent": "#1f77b4",
+}
 
 
 def _empty_fig(msg: str = "Select subject(s)") -> go.Figure:
@@ -74,9 +75,9 @@ def _empty_fig(msg: str = "Select subject(s)") -> go.Figure:
     """
     fig = go.Figure()
     fig.update_layout(
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-        annotations=[dict(text=msg, showarrow=False, font=dict(size=14))],
+        xaxis={"visible": False},
+        yaxis={"visible": False},
+        annotations=[{"text": msg, "showarrow": False, "font": {"size": 14}}],
         margin=_MARGIN,
         **_CLEAN,
     )
@@ -97,13 +98,17 @@ def _layout(fig: go.Figure, **kw) -> None:
     config = dict(
         margin=_MARGIN,
         legend=_LEGEND,
-        hoverlabel=dict(
-            bgcolor="rgba(255, 255, 255, 0.9)",
-            font_size=12,
-            font_family="IBM Plex Sans, sans-serif",
-        ),
+        hoverlabel={
+            "bgcolor": "rgba(255, 255, 255, 0.9)",
+            "font_size": 12,
+            "font_family": "IBM Plex Sans, sans-serif",
+        },
         hovermode="x unified",
-        font=dict(family="IBM Plex Sans, sans-serif", color=_THEME["text"], size=12),
+        font={
+            "family": "IBM Plex Sans, sans-serif",
+            "color": _THEME["text"],
+            "size": 12,
+        },
         xaxis=_AXIS_CLEAN,
         yaxis=_AXIS_CLEAN,
         **_CLEAN,
@@ -111,12 +116,14 @@ def _layout(fig: go.Figure, **kw) -> None:
 
     # Handle title if provided (wrap in dict)
     if "title" in kw:
-        kw["title"] = dict(
-            text=kw["title"],
-            font=dict(
-                family="Space Grotesk, sans-serif", size=14, color=_THEME["text"]
-            ),
-        )
+        kw["title"] = {
+            "text": kw["title"],
+            "font": {
+                "family": "Space Grotesk, sans-serif",
+                "size": 14,
+                "color": _THEME["text"],
+            },
+        }
 
     # Update defaults with provided kwargs
     config.update(kw)
@@ -233,7 +240,7 @@ def create_app() -> Dash:
         """Format decimal hours as a zero-padded clock string."""
         if not math.isfinite(hours_since_midnight):
             return "unknown"
-        total_seconds = int(round(hours_since_midnight * 3600))
+        total_seconds = round(hours_since_midnight * 3600)
         total_seconds = max(0, min(total_seconds, 24 * 3600 - 1))
         hours = total_seconds // 3600
         minutes = (total_seconds % 3600) // 60
@@ -267,31 +274,31 @@ def create_app() -> Dash:
         *,
         yaxis2: dict[str, Any] | None = None,
     ) -> None:
-        layout_kw: dict[str, Any] = dict(
-            updatemenus=[
-                dict(
-                    type="buttons",
-                    active=-1,
-                    direction="left",
-                    x=1.0,
-                    y=1.18,
-                    xanchor="right",
-                    yanchor="top",
-                    showactive=True,
-                    bgcolor=_THEME["card"],
-                    bordercolor=_THEME["border"],
-                    font=dict(size=11, color=_THEME["text"]),
-                    buttons=[
-                        dict(
-                            label=label,
-                            method="restyle",
-                            args=[{"visible": on_visible}],
-                            args2=[{"visible": off_visible}],
-                        )
+        layout_kw: dict[str, Any] = {
+            "updatemenus": [
+                {
+                    "type": "buttons",
+                    "active": -1,
+                    "direction": "left",
+                    "x": 1.0,
+                    "y": 1.18,
+                    "xanchor": "right",
+                    "yanchor": "top",
+                    "showactive": True,
+                    "bgcolor": _THEME["card"],
+                    "bordercolor": _THEME["border"],
+                    "font": {"size": 11, "color": _THEME["text"]},
+                    "buttons": [
+                        {
+                            "label": label,
+                            "method": "restyle",
+                            "args": [{"visible": on_visible}],
+                            "args2": [{"visible": off_visible}],
+                        }
                     ],
-                )
+                }
             ]
-        )
+        }
         if yaxis2 is not None:
             layout_kw["yaxis2"] = yaxis2
         fig.update_layout(**layout_kw)
@@ -391,7 +398,7 @@ def create_app() -> Dash:
                 y=ys,
                 mode="lines",
                 name=name,
-                line=dict(color=color, width=2),
+                line={"color": color, "width": 2},
                 fill="tozeroy",
                 opacity=0.4,
                 legendgroup=legendgroup,
@@ -739,7 +746,7 @@ def create_app() -> Dash:
         Side Effects:
             Triggers multi-session cache prewarming anchored to the latest date.
         """
-        today = _date.today().isoformat()
+        today = _date.today().isoformat()  # noqa: DTZ011 — lab-local calendar day
         if ctx.triggered_id == "today-button":
             return today, None, today, today
 
@@ -1035,13 +1042,13 @@ def create_app() -> Dash:
             if multi_col:
                 # Collect totals for horizontal stacked bars
                 multi_outcome_data.append(
-                    dict(
-                        subject=subj,
-                        correct=sum(sm["n_correct"]),
-                        incorrect=sum(sm["n_incorrect"]),
-                        ew=sum(sm["n_ew"]),
-                        no_choice=sum(sm["n_no_choice"]),
-                    )
+                    {
+                        "subject": subj,
+                        "correct": sum(sm["n_correct"]),
+                        "incorrect": sum(sm["n_incorrect"]),
+                        "ew": sum(sm["n_ew"]),
+                        "no_choice": sum(sm["n_no_choice"]),
+                    }
                 )
             else:
                 # Single subject: per-stimulus vertical stacked bars
@@ -1073,7 +1080,7 @@ def create_app() -> Dash:
                     name=subj,
                     showlegend=multi,
                     legendgroup=grp,
-                    marker=dict(color=c, size=7),
+                    marker={"color": c, "size": 7},
                     hovertemplate="%{y:.2f}" + ht_subj,
                 )
             )
@@ -1087,8 +1094,8 @@ def create_app() -> Dash:
                     name=subj,
                     showlegend=False,
                     legendgroup=grp,
-                    marker=dict(color=c, size=7),
-                    line=dict(color=c, width=2),
+                    marker={"color": c, "size": 7},
+                    line={"color": c, "width": 2},
                     hovertemplate="%{y:.3f}s" + ht_subj,
                 )
             )
@@ -1103,19 +1110,19 @@ def create_app() -> Dash:
                         name=subj,
                         showlegend=False,
                         legendgroup=grp,
-                        line=dict(color=c, width=2),
+                        line={"color": c, "width": 2},
                         hovertemplate="%{y:.2f}" + ht_subj,
                     )
                 )
 
             # Within-session EW Rate (Secondary Axis)
-            if "ew_roll_x" in sm and sm["ew_roll_x"]:
+            if sm.get("ew_roll_x"):
                 fig_sp.add_trace(
                     go.Scatter(
                         x=sm["ew_roll_x"],
                         y=sm["ew_roll_y"],
                         mode="lines",
-                        line=dict(color=c, width=1.5, dash="dot"),
+                        line={"color": c, "width": 1.5, "dash": "dot"},
                         name=(subj + " ew") if multi else "ew rate",
                         showlegend=multi,
                         yaxis="y2",
@@ -1136,7 +1143,7 @@ def create_app() -> Dash:
                         name=subj,
                         showlegend=False,
                         legendgroup=grp,
-                        marker=dict(color=c, size=3, opacity=0.4),
+                        marker={"color": c, "size": 3, "opacity": 0.4},
                         hovertemplate="%{y:.3f}s" + ht_subj,
                     )
                 )
@@ -1150,7 +1157,7 @@ def create_app() -> Dash:
                             name=subj + " roll",
                             showlegend=False,
                             legendgroup=grp,
-                            line=dict(color=c, width=2),
+                            line={"color": c, "width": 2},
                             hovertemplate="%{y:.3f}s (roll)" + ht_subj,
                         )
                     )
@@ -1193,7 +1200,7 @@ def create_app() -> Dash:
                         name=subj,
                         showlegend=False,
                         legendgroup=grp,
-                        marker=dict(color=c, size=3, opacity=0.4),
+                        marker={"color": c, "size": 3, "opacity": 0.4},
                         hovertemplate="%{y:.3f}s<extra>raw</extra>",
                         visible=True,
                     )
@@ -1210,7 +1217,7 @@ def create_app() -> Dash:
                             name=subj + " roll",
                             showlegend=False,
                             legendgroup=grp,
-                            line=dict(color=c, width=2),
+                            line={"color": c, "width": 2},
                             hovertemplate="%{y:.3f}s<extra>rolling</extra>",
                             visible=True,
                         )
@@ -1228,7 +1235,7 @@ def create_app() -> Dash:
                             name="Left",
                             showlegend=i == 0,
                             legendgroup="choice-left",
-                            marker=dict(color="royalblue", size=3, opacity=0.4),
+                            marker={"color": "royalblue", "size": 3, "opacity": 0.4},
                             hovertemplate="%{y:.3f}s<extra>left</extra>",
                             visible=False,
                         )
@@ -1244,7 +1251,7 @@ def create_app() -> Dash:
                             name="Left roll",
                             showlegend=i == 0,
                             legendgroup="choice-left",
-                            line=dict(color="royalblue", width=2),
+                            line={"color": "royalblue", "width": 2},
                             hovertemplate="%{y:.3f}s<extra>left rolling</extra>",
                             visible=False,
                         )
@@ -1260,7 +1267,7 @@ def create_app() -> Dash:
                             name="Right",
                             showlegend=i == 0,
                             legendgroup="choice-right",
-                            marker=dict(color="darkorange", size=3, opacity=0.4),
+                            marker={"color": "darkorange", "size": 3, "opacity": 0.4},
                             hovertemplate="%{y:.3f}s<extra>right</extra>",
                             visible=False,
                         )
@@ -1278,7 +1285,7 @@ def create_app() -> Dash:
                             name="Right roll",
                             showlegend=i == 0,
                             legendgroup="choice-right",
-                            line=dict(color="darkorange", width=2),
+                            line={"color": "darkorange", "width": 2},
                             hovertemplate="%{y:.3f}s<extra>right rolling</extra>",
                             visible=False,
                         )
@@ -1388,7 +1395,7 @@ def create_app() -> Dash:
                         name=subj,
                         showlegend=False,
                         legendgroup=grp,
-                        marker=dict(color=c, size=3, opacity=0.4),
+                        marker={"color": c, "size": 3, "opacity": 0.4},
                         hovertemplate="%{y:.3f}s" + ht_subj,
                         visible=True,
                     )
@@ -1404,7 +1411,7 @@ def create_app() -> Dash:
                             name=subj + " roll",
                             showlegend=False,
                             legendgroup=grp,
-                            line=dict(color=c, width=2),
+                            line={"color": c, "width": 2},
                             hovertemplate="%{y:.3f}s (roll)" + ht_subj,
                             visible=True,
                         )
@@ -1422,7 +1429,7 @@ def create_app() -> Dash:
                             name="Left",
                             showlegend=i == 0,
                             legendgroup="choice-left",
-                            marker=dict(color="royalblue", size=3, opacity=0.4),
+                            marker={"color": "royalblue", "size": 3, "opacity": 0.4},
                             hovertemplate="%{y:.3f}s<extra>left</extra>",
                             visible=False,
                         )
@@ -1438,7 +1445,7 @@ def create_app() -> Dash:
                             name="Left roll",
                             showlegend=i == 0,
                             legendgroup="choice-left",
-                            line=dict(color="royalblue", width=2),
+                            line={"color": "royalblue", "width": 2},
                             hovertemplate="%{y:.3f}s<extra>left rolling</extra>",
                             visible=False,
                         )
@@ -1454,7 +1461,7 @@ def create_app() -> Dash:
                             name="Right",
                             showlegend=i == 0,
                             legendgroup="choice-right",
-                            marker=dict(color="darkorange", size=3, opacity=0.4),
+                            marker={"color": "darkorange", "size": 3, "opacity": 0.4},
                             hovertemplate="%{y:.3f}s<extra>right</extra>",
                             visible=False,
                         )
@@ -1470,7 +1477,7 @@ def create_app() -> Dash:
                             name="Right roll",
                             showlegend=i == 0,
                             legendgroup="choice-right",
-                            line=dict(color="darkorange", width=2),
+                            line={"color": "darkorange", "width": 2},
                             hovertemplate="%{y:.3f}s<extra>right rolling</extra>",
                             visible=False,
                         )
@@ -1591,7 +1598,7 @@ def create_app() -> Dash:
                         name=subj,
                         showlegend=False,
                         legendgroup=grp,
-                        marker=dict(color=c, size=3, opacity=0.4),
+                        marker={"color": c, "size": 3, "opacity": 0.4},
                         hovertemplate="%{y:.3f}s" + ht_subj,
                         visible=True,
                     )
@@ -1607,7 +1614,7 @@ def create_app() -> Dash:
                             name=subj + " roll",
                             showlegend=False,
                             legendgroup=grp,
-                            line=dict(color=c, width=2),
+                            line={"color": c, "width": 2},
                             hovertemplate="%{y:.3f}s (roll)" + ht_subj,
                             visible=True,
                         )
@@ -1623,7 +1630,7 @@ def create_app() -> Dash:
                             name="Left",
                             showlegend=i == 0,
                             legendgroup="rt-left",
-                            marker=dict(color="royalblue", size=3, opacity=0.4),
+                            marker={"color": "royalblue", "size": 3, "opacity": 0.4},
                             hovertemplate="%{y:.3f}s<extra>left</extra>",
                             visible=False,
                         )
@@ -1639,7 +1646,7 @@ def create_app() -> Dash:
                             name="Left roll",
                             showlegend=i == 0,
                             legendgroup="rt-left",
-                            line=dict(color="royalblue", width=2),
+                            line={"color": "royalblue", "width": 2},
                             hovertemplate="%{y:.3f}s<extra>left rolling</extra>",
                             visible=False,
                         )
@@ -1655,7 +1662,7 @@ def create_app() -> Dash:
                             name="Right",
                             showlegend=i == 0,
                             legendgroup="rt-right",
-                            marker=dict(color="darkorange", size=3, opacity=0.4),
+                            marker={"color": "darkorange", "size": 3, "opacity": 0.4},
                             hovertemplate="%{y:.3f}s<extra>right</extra>",
                             visible=False,
                         )
@@ -1671,7 +1678,7 @@ def create_app() -> Dash:
                             name="Right roll",
                             showlegend=i == 0,
                             legendgroup="rt-right",
-                            line=dict(color="darkorange", width=2),
+                            line={"color": "darkorange", "width": 2},
                             hovertemplate="%{y:.3f}s<extra>right rolling</extra>",
                             visible=False,
                         )
@@ -1875,8 +1882,8 @@ def create_app() -> Dash:
                         name=subj,
                         showlegend=multi_col,
                         legendgroup=grp,
-                        marker=dict(color=c, size=6),
-                        line=dict(color=c, width=2),
+                        marker={"color": c, "size": 6},
+                        line={"color": c, "width": 2},
                         hovertemplate=(
                             "%{y:.0f} trials<br>"
                             "elapsed: %{x:.1f} min<br>"
@@ -1901,7 +1908,7 @@ def create_app() -> Dash:
                         name=(subj + " water") if multi_col else "Water",
                         showlegend=multi_col,
                         legendgroup=grp,
-                        line=dict(color=c, width=2, dash="dot"),
+                        line={"color": c, "width": 2, "dash": "dot"},
                         hovertemplate=(
                             "%{y:.1f} µL<br>"
                             "elapsed: %{x:.1f} min<br>"
@@ -1924,7 +1931,7 @@ def create_app() -> Dash:
                         name=subj if multi_col else "Total",
                         showlegend=multi_col,
                         legendgroup=grp,
-                        line=dict(color=c, width=2),
+                        line={"color": c, "width": 2},
                         hovertemplate="%{y:.1f} µL<extra>" + subj + "</extra>",
                         visible=True,
                     )
@@ -1940,7 +1947,7 @@ def create_app() -> Dash:
                             name="Left",
                             showlegend=i == 0,
                             legendgroup="water-left",
-                            line=dict(color="royalblue", width=2),
+                            line={"color": "royalblue", "width": 2},
                             hovertemplate="%{y:.1f} µL<extra>left</extra>",
                             visible=False,
                         )
@@ -1956,7 +1963,7 @@ def create_app() -> Dash:
                             name="Right",
                             showlegend=i == 0,
                             legendgroup="water-right",
-                            line=dict(color="darkorange", width=2),
+                            line={"color": "darkorange", "width": 2},
                             hovertemplate="%{y:.1f} µL<extra>right</extra>",
                             visible=False,
                         )
@@ -1976,8 +1983,8 @@ def create_app() -> Dash:
                         name=subj,
                         showlegend=multi,
                         legendgroup=grp,
-                        marker=dict(color=c, size=6),
-                        line=dict(color=c, width=2),
+                        marker={"color": c, "size": 6},
+                        line={"color": c, "width": 2},
                         hovertemplate="%{y:.3f}s" + ht_subj,
                         visible=True,
                     )
@@ -2028,8 +2035,8 @@ def create_app() -> Dash:
                             name=label,
                             showlegend=i == 0,
                             legendgroup=group,
-                            marker=dict(color=color, size=6),
-                            line=dict(color=color, width=2),
+                            marker={"color": color, "size": 6},
+                            line={"color": color, "width": 2},
                             hovertemplate=(
                                 "%{y:.3f}s<extra>"
                                 + hover_label
@@ -2078,17 +2085,17 @@ def create_app() -> Dash:
                 )
 
         # Consistent Reference Lines
-        _ref_line = dict(line_dash="dash", line_color="grey", line_width=1)
+        _ref_line = {"line_dash": "dash", "line_color": "grey", "line_width": 1}
 
         # Row 1
-        _fc_legend = dict(
-            visible=True,
-            orientation="h",
-            y=-0.35,
-            x=0.5,
-            xanchor="center",
-            font=dict(size=10),
-        )
+        _fc_legend = {
+            "visible": True,
+            "orientation": "h",
+            "y": -0.35,
+            "x": 0.5,
+            "xanchor": "center",
+            "font": {"size": 10},
+        }
         if multi_col:
             _layout(
                 fig_fc,
@@ -2130,15 +2137,15 @@ def create_app() -> Dash:
             xaxis_title="trial number",
             yaxis_title="correct rate",
             yaxis_range=[0, 1],
-            yaxis2=dict(
-                title=dict(text="ew rate", font=dict(color="silver")),
-                overlaying="y",
-                side="right",
-                range=[0, 1],
-                showgrid=False,
-                zeroline=False,
-                tickfont=dict(color="silver"),
-            ),
+            yaxis2={
+                "title": {"text": "ew rate", "font": {"color": "silver"}},
+                "overlaying": "y",
+                "side": "right",
+                "range": [0, 1],
+                "showgrid": False,
+                "zeroline": False,
+                "tickfont": {"color": "silver"},
+            },
         )
         fig_sp.add_hline(y=0.5, **_ref_line)  # Ref Line (Updated style)
 
@@ -2279,13 +2286,13 @@ def create_app() -> Dash:
                 counts_only,
                 counts_and_water,
                 "Water",
-                yaxis2=dict(
-                    title="water (µL)",
-                    overlaying="y",
-                    side="right",
-                    rangemode="tozero",
-                    showgrid=False,
-                ),
+                yaxis2={
+                    "title": "water (µL)",
+                    "overlaying": "y",
+                    "side": "right",
+                    "rangemode": "tozero",
+                    "showgrid": False,
+                },
             )
         _layout(
             fig_wc,
@@ -2478,8 +2485,8 @@ def create_app() -> Dash:
                 continue
             session_dates = ms.get("session_dates", [])
             ht = "%{y:.2f}<br>session date: %{customdata}<extra>" + subj + "</extra>"
-            mk = dict(color=c, size=7)
-            ln = dict(color=c, width=2)
+            mk = {"color": c, "size": 7}
+            ln = {"color": c, "width": 2}
 
             fig_perf.add_trace(
                 go.Scatter(
@@ -2505,7 +2512,7 @@ def create_app() -> Dash:
                     legendgroup=grp,
                     showlegend=False,
                     marker=mk,
-                    line=dict(color=c),
+                    line={"color": c},
                     hovertemplate=ht,
                 )
             )
@@ -2519,7 +2526,7 @@ def create_app() -> Dash:
                     legendgroup=grp,
                     showlegend=False,
                     marker=mk,
-                    line=dict(color=c),
+                    line={"color": c},
                     hovertemplate=ht,
                 )
             )
@@ -2533,7 +2540,7 @@ def create_app() -> Dash:
                     legendgroup=grp,
                     showlegend=False,
                     marker=mk,
-                    line=dict(color=c),
+                    line={"color": c},
                     hovertemplate="%{y:.3f}s<br>session date: %{customdata}<extra>"
                     + subj
                     + "</extra>",
@@ -2549,7 +2556,7 @@ def create_app() -> Dash:
                     legendgroup=grp,
                     showlegend=False,
                     marker=mk,
-                    line=dict(color=c),
+                    line={"color": c},
                     hovertemplate="%{y:.3f}s<br>session date: %{customdata}<extra>"
                     + subj
                     + "</extra>",
@@ -2565,7 +2572,7 @@ def create_app() -> Dash:
                     legendgroup=grp,
                     showlegend=False,
                     marker=mk,
-                    line=dict(color=c),
+                    line={"color": c},
                     hovertemplate="%{y:.3f}s<br>session date: %{customdata}<extra>"
                     + subj
                     + "</extra>",
@@ -2580,7 +2587,7 @@ def create_app() -> Dash:
                     name=subj,
                     legendgroup=grp,
                     showlegend=False,
-                    line=dict(color=c),
+                    line={"color": c},
                     marker=mk,
                     hovertemplate="%{y}<br>session date: %{customdata}<extra>"
                     + subj
@@ -2597,7 +2604,7 @@ def create_app() -> Dash:
                     legendgroup=grp,
                     showlegend=False,
                     marker=mk,
-                    line=dict(color=c),
+                    line={"color": c},
                     hovertemplate="%{y:.2f} mL<br>session date: %{customdata}<extra>"
                     + subj
                     + "</extra>",
@@ -2619,7 +2626,7 @@ def create_app() -> Dash:
                     legendgroup=grp,
                     showlegend=False,
                     marker=mk,
-                    line=dict(color=c),
+                    line={"color": c},
                     hovertemplate="session date: %{customdata}<br>"
                     + "training time: %{text}<extra>"
                     + subj
@@ -2627,9 +2634,9 @@ def create_app() -> Dash:
                 )
             )
 
-        _ref_line = dict(line_dash="dash", line_color="grey", line_width=1)
+        _ref_line = {"line_dash": "dash", "line_color": "grey", "line_width": 1}
 
-        _ms = dict(type="date", showgrid=False, zeroline=False)
+        _ms = {"type": "date", "showgrid": False, "zeroline": False}
         _layout(
             fig_perf,
             title="Performance (easy)",
@@ -2709,12 +2716,12 @@ def create_app() -> Dash:
             xaxis_title="session datetime",
             yaxis_title="time of day",
             xaxis=_ms,
-            yaxis=dict(
-                range=[24, 0],
-                tickmode="array",
-                tickvals=list(range(0, 25, 3)),
-                ticktext=[f"{hour:02d}:00" for hour in range(0, 25, 3)],
-            ),
+            yaxis={
+                "range": [24, 0],
+                "tickmode": "array",
+                "tickvals": list(range(0, 25, 3)),
+                "ticktext": [f"{hour:02d}:00" for hour in range(0, 25, 3)],
+            },
         )
 
         perf_log(

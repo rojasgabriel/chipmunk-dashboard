@@ -25,12 +25,12 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from dash import Dash, Input, Output, State, dcc, html
+
 from chipmunk_dashboard.fixture_data import (
     make_multisession_metrics,
     make_session_metrics,
 )
-from dash import Dash, Input, Output, State, dcc, html
-
 
 # ---------------------------------------------------------------------------
 # Module import helpers

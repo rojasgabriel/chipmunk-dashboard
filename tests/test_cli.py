@@ -122,3 +122,19 @@ class TestCli(unittest.TestCase):
 
         timer_cls.assert_not_called()
         app.run.assert_called_once_with(host="localhost", port=8050, debug=False)
+
+    def test_install_labdata_registers_bundled_plugin(self) -> None:
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                ["chipmunk-dashboard", "install-labdata"],
+            ),
+            mock.patch(
+                "chipmunk_dashboard.cli.register_labdata_plugin",
+                return_value=("/tmp/user_preferences.json", True),
+            ) as register,
+        ):
+            cli.main()
+
+        register.assert_called_once_with()
