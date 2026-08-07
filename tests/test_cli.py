@@ -103,3 +103,38 @@ class TestCli(unittest.TestCase):
         timer_cls.assert_called_once()
         timer_instance.start.assert_called_once()
         app.run.assert_called_once_with(host="localhost", port=8050, debug=False)
+
+    def test_run_command_ui_debug_sets_fixture_data_flag(self) -> None:
+        app = _FakeApp()
+        self._install_fake_app_module(app)
+
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.object(
+                sys,
+                "argv",
+                ["chipmunk-dashboard", "run", "--ui-debug", "--no-open"],
+            ),
+            mock.patch("chipmunk_dashboard.cli.threading.Timer") as timer_cls,
+        ):
+            cli.main()
+            self.assertEqual(os.environ["CHIPMUNK_UI_DEBUG"], "1")
+
+        timer_cls.assert_not_called()
+        app.run.assert_called_once_with(host="localhost", port=8050, debug=False)
+
+    def test_install_labdata_registers_bundled_plugin(self) -> None:
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                ["chipmunk-dashboard", "install-labdata"],
+            ),
+            mock.patch(
+                "chipmunk_dashboard.cli.register_labdata_plugin",
+                return_value=("/tmp/user_preferences.json", True),
+            ) as register,
+        ):
+            cli.main()
+
+        register.assert_called_once_with()

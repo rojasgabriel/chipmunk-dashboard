@@ -18,6 +18,7 @@ from unittest import mock
 import pytest
 import numpy as np
 from PIL import Image
+from playwright.sync_api import expect
 from werkzeug.serving import make_server
 
 if os.getenv("RUN_PLAYWRIGHT") != "1":
@@ -157,7 +158,6 @@ def _session_metrics_payload() -> dict:
             "audio stim range: 5.00 to 15.00",
             "visual stim range: 5.00 to 15.00",
         ],
-        "water_side_totals": [18.0, 20.0, 38.0],
         "water_side_totals_ul": [18.0, 20.0, 38.0],
         "water_cum_x": trial_nums,
         "water_cum_time_x": [float(v - 1) for v in trial_nums],
@@ -267,6 +267,32 @@ def test_dashboard_functional_smoke(page, dashboard_url):
     older_checkbox.check(force=True)
     page.wait_for_selector("#iti-rolling .main-svg", timeout=10000)
     assert older_checkbox.is_checked()
+
+
+def test_sidebar_toggle_button_collapses_sidebar(page, dashboard_url):
+    _open_dashboard_with_subject(page, dashboard_url)
+
+    sidebar = page.locator(".dashboard-sidebar")
+    button = page.locator("#sidebar-toggle-button")
+    main = page.locator(".dashboard-main")
+
+    assert sidebar.is_visible()
+    assert button.get_attribute("title") == "Hide sidebar"
+    assert button.inner_text() == "⬅️"
+
+    button.click()
+
+    expect(sidebar).to_be_hidden()
+    expect(button).to_have_attribute("title", "Show sidebar")
+    expect(button).to_have_text("➡️")
+    assert main.bounding_box()["x"] == 0
+    assert main.bounding_box()["width"] == page.viewport_size["width"]
+
+    button.click()
+
+    expect(sidebar).to_be_visible()
+    expect(button).to_have_attribute("title", "Hide sidebar")
+    expect(button).to_have_text("⬅️")
 
 
 def test_overview_layout_hash_regression(page, dashboard_url):

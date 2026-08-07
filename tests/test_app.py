@@ -86,13 +86,11 @@ def _import_app_module():
 
     fake_plotly = types.ModuleType("plotly")
     fake_plotly.__path__ = []
+    fake_plotly.colors = importlib.import_module("plotly.colors")
     fake_go = types.ModuleType("plotly.graph_objects")
     fake_go.Figure = _Figure
     fake_go.Scatter = lambda **kwargs: types.SimpleNamespace(type="scatter", **kwargs)
-    fake_px = types.ModuleType("plotly.express")
-    fake_px.colors = types.SimpleNamespace(
-        qualitative=types.SimpleNamespace(Plotly=["#1f77b4", "#ff7f0e", "#2ca02c"])
-    )
+    fake_plotly.graph_objects = fake_go
 
     fake_data = types.ModuleType("chipmunk_dashboard.data")
     fake_data.get_all_subjects = mock.Mock(return_value=["subject-a", "subject-b"])
@@ -110,7 +108,6 @@ def _import_app_module():
             "dash": fake_dash,
             "plotly": fake_plotly,
             "plotly.graph_objects": fake_go,
-            "plotly.express": fake_px,
             "chipmunk_dashboard.data": fake_data,
         },
     ):
@@ -158,34 +155,58 @@ class TestAppUtilities(unittest.TestCase):
         self.assertEqual(fig.layout["xaxis_title"], "x-axis")
         self.assertEqual(fig.layout["font"]["color"], self.appmod._THEME["text"])
 
-    def test_create_app_includes_single_session_tabs(self) -> None:
+    def test_create_app_includes_sidebar_controls(self) -> None:
         app = self.appmod.create_app()
-        tabs = _find_fake_component(app.layout, "Tabs", "single-session-tabs")
-        self.assertIsNotNone(tabs)
-        children = tabs["kwargs"]["children"]
-        self.assertEqual(len(children), 2)
-        labels = [child["kwargs"]["label"] for child in children]
-        values = [child["kwargs"]["value"] for child in children]
-        self.assertEqual(labels, ["Overview", "Timing"])
-        self.assertEqual(values, ["single-overview", "single-timing"])
-        toggle = _find_fake_component(app.layout, "Details", "session-settings-toggle")
-        self.assertIsNotNone(toggle)
+        sidebar_toggle = _find_fake_component(
+            app.layout, "Button", "sidebar-toggle-button"
+        )
+        self.assertIsNotNone(sidebar_toggle)
+        state = _find_fake_component(app.layout, "Store", "sidebar-collapsed")
+        self.assertIsNotNone(state)
+
+    def test_toggle_sidebar_callback_updates_class_name(self) -> None:
+        app = self.appmod.create_app()
+        toggle_sidebar = app.callbacks["_toggle_sidebar"]
+
+        collapsed, class_name, icon, title, aria_label, pressed = toggle_sidebar(
+            1, False
+        )
+        self.assertTrue(collapsed)
+        self.assertEqual(class_name, "dashboard-root dashboard-root--sidebar-collapsed")
+        self.assertEqual(icon, "➡️")
+        self.assertEqual(title, "Show sidebar")
+        self.assertEqual(aria_label, "Show sidebar")
+        self.assertEqual(pressed, "true")
+
+        collapsed, class_name, icon, title, aria_label, pressed = toggle_sidebar(
+            2, True
+        )
+        self.assertFalse(collapsed)
+        self.assertEqual(class_name, "dashboard-root")
+        self.assertEqual(icon, "⬅️")
+        self.assertEqual(title, "Hide sidebar")
+        self.assertEqual(aria_label, "Hide sidebar")
+        self.assertEqual(pressed, "false")
 
     def test_perf_log_skips_when_disabled(self) -> None:
+        import chipmunk_dashboard.perf as perf_mod
+
         with (
-            mock.patch.object(self.appmod, "_PROFILE_PERF", False),
-            mock.patch.object(self.appmod._LOGGER, "info") as log_info,
+            mock.patch.object(perf_mod, "_PROFILE_PERF", False),
+            mock.patch.object(perf_mod._LOGGER, "info") as log_info,
         ):
-            self.appmod._perf_log("metric", 0.0, key="value")
+            perf_mod.perf_log("metric", 0.0, key="value")
         log_info.assert_not_called()
 
     def test_perf_log_emits_when_enabled(self) -> None:
+        import chipmunk_dashboard.perf as perf_mod
+
         with (
-            mock.patch.object(self.appmod, "_PROFILE_PERF", True),
-            mock.patch.object(self.appmod.time, "perf_counter", return_value=2.5),
-            mock.patch.object(self.appmod._LOGGER, "info") as log_info,
+            mock.patch.object(perf_mod, "_PROFILE_PERF", True),
+            mock.patch("chipmunk_dashboard.perf.time.perf_counter", return_value=2.0),
+            mock.patch.object(perf_mod._LOGGER, "info") as log_info,
         ):
-            self.appmod._perf_log("metric", 2.0, key="value")
+            perf_mod.perf_log("metric", 0.0, key="value")
         log_info.assert_called_once()
         msg = log_info.call_args[0][0]
         self.assertIn("perf metric", msg)

@@ -9,7 +9,7 @@ Prerequisites:
 
 - `uv`
 - VPN / lab network access for live database use
-- the `chipmunk` labdata plugin in your `labdata` plugins folder
+- a configured `labdata` preferences file
 
 Install:
 
@@ -17,6 +17,7 @@ Install:
 git clone https://github.com/rojasgabriel/chipmunk-dashboard.git
 cd chipmunk-dashboard
 uv sync --all-groups
+uv run chipmunk-dashboard install-labdata
 uv run pre-commit install
 ```
 
@@ -88,7 +89,7 @@ Do not loosen `setuptools < 80` without a real reason and validation.
 
 ## AI agents
 
-Repo-specific agent rules live in `AI_AGENTS.md`.
+Repo-specific agent rules live in `AGENTS.md`.
 
 If you use an agent, point it there first, keep the task narrow, and review the
 diff yourself before opening a PR.

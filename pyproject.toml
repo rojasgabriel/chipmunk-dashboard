@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build"]
+requires = ["uv_build>=0.10.7,<0.11"]
 build-backend = "uv_build"
 
 [project]
@@ -11,7 +11,7 @@ dependencies = [
     "plotly<7",
     "pandas",
     "numpy",
-    "labdata>=0.0.22",
+    "labdata[dashboard]>=0.1.12",
     # Newer setuptools releases break the real labdata/datajoint import path.
     "setuptools==79.0.1",
 ]
@@ -21,6 +21,7 @@ chipmunk-dashboard = "chipmunk_dashboard.cli:main"
 
 [tool.uv.build-backend]
 module-root = "src"
+source-exclude = [".mypy_cache"]
 
 [tool.uv]
 constraint-dependencies = [
@@ -30,12 +31,13 @@ constraint-dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.14",
+    "ruff>=0.15.17",
     "pre-commit>=4.6.0",
-    "pytest>=8.0",
+    "pytest>=9.1.0",
     "pytest-cov>=7.1.0",
     "pytest-playwright>=0.8.0",
     "playwright>=1.60.0",
     "pillow>=12.3.0",
     "pygments>=2.20.0",
+    "streamlit>=1.56,<2",
 ]
