@@ -769,7 +769,9 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
         if finite_numeric.size:
             rounded = np.round(finite_numeric, 6)
             unique_vals = np.unique(rounded)
-            if mode == "range" or (
+            if mode == "values":
+                text = ", ".join(f"{val:.3g}" for val in unique_vals.tolist())
+            elif mode == "range" or (
                 mode == "auto" and len(unique_vals) > 3 and "stim" in col_name.lower()
             ):
                 text = _range_text(finite_numeric)
@@ -791,9 +793,9 @@ def session_metrics(subject: str, session_name: str) -> dict | None:
     preferred_settings = [
         ("rewarded_modality", "modality", "auto"),
         ("category_boundary", "boundary", "auto"),
-        ("stim_rate_audio", "audio stim", "range"),
-        ("stim_rate_vision", "visual stim", "range"),
-        ("stim_rate_visual", "visual stim", "range"),
+        ("stim_rate_audio", "audio stim", "values"),
+        ("stim_rate_vision", "visual stim", "values"),
+        ("stim_rate_visual", "visual stim", "values"),
         ("wait_duration", "wait duration", "auto"),
         ("delay_duration", "delay duration", "auto"),
         ("sample_duration", "sample duration", "auto"),
