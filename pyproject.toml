@@ -39,5 +39,5 @@ dev = [
     "playwright>=1.62.0",
     "pillow>=12.3.0",
     "pygments>=2.20.0",
-    "streamlit>=1.56,<2",
+    "streamlit>=1.61.1,<2",
 ]
