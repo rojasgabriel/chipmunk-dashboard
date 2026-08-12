@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
-import json
 import importlib
+import json
 import os
 import sys
 import threading
 import time
 import types
+import urllib.error
 import urllib.request
 from contextlib import ExitStack
 from io import BytesIO
 from pathlib import Path
 from unittest import mock
 
-import pytest
 import numpy as np
+import pytest
 from PIL import Image
 from playwright.sync_api import expect
 from werkzeug.serving import make_server
@@ -206,7 +207,7 @@ def _wait_for_server(url: str, timeout_s: float = 8.0) -> None:
         try:
             with urllib.request.urlopen(url, timeout=0.5):
                 return
-        except Exception:
+        except (OSError, urllib.error.URLError, TimeoutError):
             time.sleep(0.1)
     raise RuntimeError(f"Timed out waiting for test server at {url}")
 

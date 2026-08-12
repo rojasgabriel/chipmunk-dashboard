@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from importlib import import_module
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from importlib import import_module
+from typing import Any
 
 import plotly.graph_objects as go
-
 
 _SINGLE_FIGURE_IDS = (
     "frac-correct",
@@ -89,7 +89,7 @@ def _create_renderers() -> dict[str, Callable[..., Any]]:
     from .app import create_app
 
     app = create_app()
-    return getattr(app, "chipmunk_renderers")
+    return app.chipmunk_renderers
 
 
 def _session_date(session_name: str) -> str | None:

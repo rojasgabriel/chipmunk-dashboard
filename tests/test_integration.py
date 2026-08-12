@@ -31,6 +31,10 @@ from chipmunk_dashboard.fixture_data import (
 )
 from dash import Dash, Input, Output, State, dcc, html
 
+from chipmunk_dashboard.fixture_data import (
+    make_multisession_metrics,
+    make_session_metrics,
+)
 
 # ---------------------------------------------------------------------------
 # Module import helpers

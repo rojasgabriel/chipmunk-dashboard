@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 from datetime import date
+from typing import ClassVar
 from unittest import mock
 
 
@@ -66,7 +67,7 @@ class _Cacheable:
 
 
 class _ImmediateThread:
-    created = []
+    created: ClassVar[list] = []
 
     def __init__(self, target, daemon):
         self.target = target
@@ -80,7 +81,7 @@ class _ImmediateThread:
 
 
 class _DeferredThread:
-    created = []
+    created: ClassVar[list] = []
 
     def __init__(self, target, daemon):
         self.target = target
@@ -198,14 +199,12 @@ class TestDataUtilities(unittest.TestCase):
         self.assertEqual(self.data._PREWARM_INFLIGHT, set())
 
     def test_get_trials_for_sessions_returns_empty_for_no_session_names(self) -> None:
-        self.assertEqual(self.data.get_trials_for_sessions("subject-a", tuple()), {})
+        self.assertEqual(self.data.get_trials_for_sessions("subject-a", ()), {})
 
     def test_get_wait_medians_for_sessions_returns_empty_for_no_session_names(
         self,
     ) -> None:
-        self.assertEqual(
-            self.data.get_wait_medians_for_sessions("subject-a", tuple()), {}
-        )
+        self.assertEqual(self.data.get_wait_medians_for_sessions("subject-a", ()), {})
 
     def test_perf_log_skips_when_profiling_disabled(self) -> None:
         import chipmunk_dashboard.perf as perf_mod
