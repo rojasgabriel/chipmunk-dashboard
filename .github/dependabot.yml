@@ -6,5 +6,10 @@ updates:
     schedule:
       interval: "weekly"
     ignore:
+      # DataJoint 2.x breaks existing lab schemas; keep resolution on 0.14.x.
+      - dependency-name: "datajoint"
+      # setuptools>=81/82 removes or deprecates pkg_resources required by
+      # DataJoint 0.14.x; GHSA-h35f-9h28-mq5c needs >=83 and stays open until
+      # DataJoint migrates.
       - dependency-name: "setuptools"
     target-branch: "dev"

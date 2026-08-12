@@ -84,8 +84,16 @@ If you add new imports from `dash` in `app.py`, update the fake Dash shims in:
 
 ### Dependencies
 
-Do not loosen `setuptools < 80` without a real reason and validation.
-`labdata` still depends on the older `pkg_resources` path.
+Keep DataJoint on the schema-compatible `0.14.x` line via the
+`datajoint>=0.14.8,<0.15` constraint in `pyproject.toml`. Newer DataJoint
+releases can break existing lab database schemas.
+
+Keep `setuptools>=79.0.1,<81` while DataJoint 0.14.x is required: that line
+still imports `pkg_resources`, which setuptools removes after this range. The
+GHSA-h35f-9h28-mq5c fix (`setuptools>=83`) is therefore blocked until a
+schema-safe DataJoint migration. Also keep `cryptography>=50` and
+`gitpython>=3.1.58` for open advisories, and re-validate with the real
+`labdata` import smoke test in `tests/test_integration.py`.
 
 ## AI agents
 
