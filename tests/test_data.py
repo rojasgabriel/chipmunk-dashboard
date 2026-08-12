@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 from datetime import date
+from pathlib import Path
 from typing import ClassVar
 from unittest import mock
 
@@ -59,6 +60,17 @@ def _import_data_module():
     ):
         module = importlib.import_module("chipmunk_dashboard.data")
     return module
+
+
+def test_labdata_import_precedes_chipmunk_import() -> None:
+    source = (
+        Path(__file__).parents[1] / "src" / "chipmunk_dashboard" / "data.py"
+    ).read_text(encoding="utf-8")
+    assert (
+        source.index("import labdata")
+        < source.index("from labdata.schema")
+        < source.index("from chipmunk import Chipmunk")
+    )
 
 
 class _Cacheable:

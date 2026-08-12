@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.12.1,<0.13"]
+requires = ["uv_build>=0.12.3,<0.13"]
 build-backend = "uv_build"
 
 [project]
@@ -11,7 +11,7 @@ dependencies = [
     "plotly<7",
     "pandas",
     "numpy",
-    "labdata[dashboard]>=0.1.12",
+    "labdata[dashboard]>=0.1.15",
     # DataJoint 0.14.x still imports pkg_resources (removed in setuptools 82+;
     # setuptools 81 already warns to pin <81). GHSA-h35f-9h28-mq5c needs
     # setuptools>=83 and cannot be fixed until the lab migrates off DataJoint
@@ -26,6 +26,13 @@ chipmunk-dashboard = "chipmunk_dashboard.cli:main"
 module-root = "src"
 source-exclude = [".mypy_cache"]
 
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.ruff.lint.isort]
+# labdata registers the chipmunk plugin during import.
+force-to-top = ["labdata", "labdata.schema"]
+
 [tool.uv]
 constraint-dependencies = [
     # Keep DataJoint on the schema-compatible 0.14 line used by the lab DB.
@@ -39,7 +46,7 @@ constraint-dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff>=0.16.1",
+    "ruff>=0.16.2",
     "pre-commit>=4.6.1",
     "pytest>=9.1.0",
     "pytest-cov>=7.1.0",
@@ -47,5 +54,5 @@ dev = [
     "playwright>=1.62.0",
     "pillow>=12.3.0",
     "pygments>=2.20.0",
-    "streamlit>=1.56,<2",
+    "streamlit>=1.61.1,<2",
 ]

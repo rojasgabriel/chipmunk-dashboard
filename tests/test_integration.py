@@ -236,8 +236,8 @@ class TestRealLabdataImport(unittest.TestCase):
             if name == "datajoint" or name.startswith("datajoint."):
                 sys.modules.pop(name, None)
 
-        import datajoint
         import labdata
+        import datajoint
         import pkg_resources
         import setuptools
 
