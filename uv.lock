@@ -445,7 +445,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dash" },
-    { name = "labdata", extras = ["dashboard"], specifier = ">=0.1.12" },
+    { name = "labdata", extras = ["dashboard"], specifier = ">=0.1.15" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "plotly", specifier = "<7" },
@@ -1721,7 +1721,7 @@ wheels = [
 
 [[package]]
 name = "labdata"
-version = "0.1.12"
+version = "0.1.15"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -1734,9 +1734,9 @@ dependencies = [
     { name = "safe-exit" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/14/bc/548db933fceb0dd22f11130300d04fe25aad0ad3fc959d21415c3d330915/labdata-0.1.12.tar.gz", hash = "sha256:ae315b757c91ba456a5bcc608e9838f5fea91be9e849e71324d97b5650de7b8a", size = 236082, upload-time = "2026-07-17T21:59:36.948Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f9/90/72d9d4f175bf1c663fb45920a5a094277615d244ad33e4337ca166fe485b/labdata-0.1.15.tar.gz", hash = "sha256:a4552420acec457ecd2bbf29e77ed38189bfe25e4ec55cdafd9b039a3dd532e4", size = 243020, upload-time = "2026-08-07T23:06:25.122Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/a0/1fd23056cd98ad20720bc3dd26ffbb87fcdfd6e0432dc533ac924317785b/labdata-0.1.12-py3-none-any.whl", hash = "sha256:86ad229b5f8891a982d7a1f4ee2e9149df5417ec79a01d2be6ec2befa5bce8b1", size = 259503, upload-time = "2026-07-17T21:59:35.54Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/fa/0bc5b203d20c50dc4e37ac6614a7bafb248a75a750cdcd728e9d69eb37cb/labdata-0.1.15-py3-none-any.whl", hash = "sha256:26d565350a00628f5a9825b686c0411e6e334d1d0ff027c4e3f8e0cd15bc04be", size = 266408, upload-time = "2026-08-07T23:06:23.836Z" },
 ]
 
 [package.optional-dependencies]
