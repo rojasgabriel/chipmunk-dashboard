@@ -482,6 +482,27 @@ class TestSessionMetricsWithRealLibs(unittest.TestCase):
         self.assertEqual(result["n_ew"], [1])
         self.assertEqual(result["n_no_choice"], [0])
 
+    def test_session_metrics_lists_all_presented_stim_rates(self):
+        rates = [4.0, 8.0, 10.0, 14.0, 16.0, 20.0]
+        trials = _make_trial_dataframe().copy()
+        n = len(trials)
+        trials["stim_rate_audio"] = [rates[i % len(rates)] for i in range(n)]
+        trials["stim_rate_vision"] = [rates[i % len(rates)] for i in range(n)]
+
+        with (
+            mock.patch.object(self.data, "get_session_trials", return_value=trials),
+            mock.patch.object(self.data, "get_subject_water", return_value={}),
+        ):
+            result = self.data.session_metrics("subject-a", "20260101_010101")
+
+        self.assertIsNotNone(result)
+        expected = "audio stim: 4, 8, 10, 14, 16, 20"
+        self.assertIn(expected, result["session_settings_lines"])
+        self.assertNotIn(
+            "audio stim: 4.00 to 20.00",
+            result["session_settings_lines"],
+        )
+
 
 class TestMultisessionMetricsWithRealLibs(unittest.TestCase):
     def setUp(self):
