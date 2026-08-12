@@ -48,6 +48,11 @@ With that project env active, `labdata dashboard` is enough. Use
 `uv run labdata dashboard` only when you want to force the project `.venv`
 without activating it.
 
+After pulling dashboard changes, re-run `install-labdata` from the checkout you
+want `labdata` to use. The Chipmunk tab loads the adapter by path from
+`user_preferences.json`; a standalone `chipmunk-dashboard run` can be on a
+newer checkout while `labdata dashboard` still points at an older one.
+
 ## Development verification
 
 ```bash
