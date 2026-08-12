@@ -23,6 +23,13 @@ chipmunk-dashboard = "chipmunk_dashboard.cli:main"
 module-root = "src"
 source-exclude = [".mypy_cache"]
 
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.ruff.lint.isort]
+# labdata registers the chipmunk plugin during import.
+force-to-top = ["labdata", "labdata.schema"]
+
 [tool.uv]
 constraint-dependencies = [
     "cryptography>=48.0.1",

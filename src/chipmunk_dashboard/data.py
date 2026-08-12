@@ -8,10 +8,11 @@ from datetime import date, timedelta
 from functools import lru_cache, wraps
 from typing import Any, cast
 
+import labdata  # noqa: F401 — registers prefs plugins (chipmunk) into sys.modules
 import numpy as np
 import pandas as pd
-from chipmunk import Chipmunk  # type: ignore
 from labdata.schema import DecisionTask, Watering  # type: ignore
+from chipmunk import Chipmunk  # type: ignore
 
 from .perf import perf_log
 
