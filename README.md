@@ -25,6 +25,9 @@ Then start `labdata` as usual:
 labdata dashboard
 ```
 
+Do not run `labdata` through this repo's uv env unless you intentionally want
+that. Keep using the same `labdata` command and environment you already use.
+
 That registers a native **Chipmunk** page in the Streamlit sidebar. The
 separate Chipmunk `labdata` schema plugin is still needed on machines that
 ingest raw Chipmunk files; this package supplies the dashboard tab itself.
@@ -33,20 +36,33 @@ If you install into a different environment later, run
 `chipmunk-dashboard install-labdata` again from that environment before
 starting `labdata`.
 
+After pulling or developing dashboard changes, reinstall into the **same**
+environment that runs `labdata`, then re-register the adapter:
+
+```bash
+# from your labdata env, against a local checkout:
+pip install -e /path/to/chipmunk-dashboard
+chipmunk-dashboard install-labdata
+labdata dashboard
+```
+
+A standalone `chipmunk-dashboard run` from a newer checkout can look fixed
+while `labdata dashboard` still uses an older install until you reinstall.
+
 ### Optional: local checkout with uv
 
-For development or tighter env control, use [uv](https://docs.astral.sh/uv/getting-started/installation/):
+For package development, use [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
 ```bash
 git clone https://github.com/rojasgabriel/chipmunk-dashboard.git
 cd chipmunk-dashboard
 uv sync --all-groups
-uv run chipmunk-dashboard install-labdata
 ```
 
-With that project env active, `labdata dashboard` is enough. Use
-`uv run labdata dashboard` only when you want to force the project `.venv`
-without activating it.
+That only manages this repo's `.venv` for tests and `chipmunk-dashboard run`.
+To see those changes in the labdata Chipmunk tab, still `pip install -e .`
+into your normal labdata environment and run `chipmunk-dashboard install-labdata`
+there.
 
 ## Development verification
 
