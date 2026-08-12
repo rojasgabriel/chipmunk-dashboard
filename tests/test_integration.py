@@ -20,6 +20,8 @@ import os
 import sys
 import types
 import unittest
+from importlib.metadata import version
+from pathlib import Path
 from unittest import mock
 
 import numpy as np
@@ -213,6 +215,48 @@ def _make_subject_dataframe() -> pd.DataFrame:
             "reaction_times": [rng.uniform(0.1, 0.5, 50).tolist() for _ in range(n)],
         }
     )
+
+
+# Layer A0: Real labdata / DataJoint import (no fake-module patches)
+# ---------------------------------------------------------------------------
+
+
+class TestRealLabdataImport(unittest.TestCase):
+    """Prove installed labdata imports with the resolved dependency set.
+
+    Unlike the rest of this module, this test must not patch ``labdata`` out of
+    ``sys.modules``. It guards DataJoint resolution: security bumps must not
+    pull DataJoint 2.x (schema-breaking) or setuptools 82+ (no pkg_resources).
+    """
+
+    def test_installed_labdata_imports_without_mocks(self):
+        for name in list(sys.modules):
+            if name == "labdata" or name.startswith("labdata."):
+                sys.modules.pop(name, None)
+            if name == "datajoint" or name.startswith("datajoint."):
+                sys.modules.pop(name, None)
+
+        import datajoint
+        import labdata
+        import pkg_resources
+        import setuptools
+
+        self.assertIsNotNone(labdata.__file__)
+        self.assertIn("site-packages", Path(labdata.__file__).as_posix())
+        self.assertIsNotNone(datajoint.__file__)
+        self.assertIsNotNone(pkg_resources.__file__)
+        dj_version = version("datajoint")
+        self.assertTrue(
+            dj_version.startswith("0.14."),
+            f"expected datajoint 0.14.x for schema compatibility, got {dj_version}",
+        )
+        st_major = int(setuptools.__version__.split(".", 1)[0])
+        self.assertLess(
+            st_major,
+            81,
+            f"setuptools {setuptools.__version__} is outside the pkg_resources "
+            "range required by DataJoint 0.14.x",
+        )
 
 
 # Layer B: App creation smoke test with real libraries

@@ -12,8 +12,11 @@ dependencies = [
     "pandas",
     "numpy",
     "labdata[dashboard]>=0.1.12",
-    # Newer setuptools releases break the real labdata/datajoint import path.
-    "setuptools==79.0.1",
+    # DataJoint 0.14.x still imports pkg_resources (removed in setuptools 82+;
+    # setuptools 81 already warns to pin <81). GHSA-h35f-9h28-mq5c needs
+    # setuptools>=83 and cannot be fixed until the lab migrates off DataJoint
+    # 0.14.x / schema-breaking DataJoint 2.x.
+    "setuptools>=79.0.1,<81",
 ]
 
 [project.scripts]
@@ -25,7 +28,12 @@ source-exclude = [".mypy_cache"]
 
 [tool.uv]
 constraint-dependencies = [
-    "cryptography>=48.0.1",
+    # Keep DataJoint on the schema-compatible 0.14 line used by the lab DB.
+    # Newer DataJoint (2.x) drops the setuptools pin and would be selected if
+    # setuptools were forced to >=83 without this bound.
+    "datajoint>=0.14.8,<0.15",
+    "cryptography>=50.0.0",
+    "gitpython>=3.1.58",
     "idna>=3.15",
 ]
 

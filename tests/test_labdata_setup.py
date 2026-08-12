@@ -86,3 +86,30 @@ def test_ensure_bundled_package_prefers_adapter_tree_over_other_install(
     import chipmunk_dashboard
 
     assert Path(chipmunk_dashboard.__file__).resolve().is_relative_to(package_dir)
+
+
+def test_data_module_imports_labdata_before_chipmunk():
+    """Preference plugins only land in sys.modules after labdata loads."""
+    source = Path("src/chipmunk_dashboard/data.py").read_text(encoding="utf-8")
+    labdata_import = source.index("import labdata")
+    chipmunk_import = source.index("from chipmunk import Chipmunk")
+    assert labdata_import < chipmunk_import
+
+
+def test_labdata_plugin_path_makes_chipmunk_importable(tmp_path):
+    """Mirrors labdata prefs['plugins']['chipmunk'] = <plugin dir>."""
+    plugin_dir = tmp_path / "chipmunk"
+    plugin_dir.mkdir()
+    (plugin_dir / "__init__.py").write_text(
+        "class Chipmunk:\n    class Trial:\n        pass\n",
+        encoding="utf-8",
+    )
+
+    sys.modules.pop("chipmunk", None)
+    from labdata.utils import plugin_lazy_import
+
+    plugin_lazy_import("chipmunk", plugin_dir)
+    from chipmunk import Chipmunk
+
+    assert Chipmunk.Trial is not None
+    sys.modules.pop("chipmunk", None)

@@ -10,7 +10,12 @@ state for current work.
 - If you add new Dash imports in `app.py`, update the fake Dash shims in
   `tests/test_app.py` and `tests/test_integration.py`.
 - Keep callback `Output(...)` order aligned with callback return tuples.
-- Do not loosen `setuptools < 80` without concrete validation.
+- Keep DataJoint on `0.14.x` (`datajoint>=0.14.8,<0.15`); newer DataJoint
+  breaks existing lab schemas. Do not loosen that bound without schema
+  validation on the lab network.
+- Keep `setuptools>=79.0.1,<81` while DataJoint 0.14.x is required
+  (`pkg_resources`). Do not bump to setuptools 81+/83+ until DataJoint is
+  migrated; GHSA-h35f-9h28-mq5c cannot be closed on the current schema line.
 - If a change adds a plot, use `.agents/skills/add-plot/SKILL.md`.
 - Treat incorrect trials as `with_choice == 1` and `rewarded == 0`; do not
   derive them from `punished`.
