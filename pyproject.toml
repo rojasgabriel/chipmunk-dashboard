@@ -16,7 +16,7 @@ dependencies = [
     # setuptools 81 already warns to pin <81). GHSA-h35f-9h28-mq5c needs
     # setuptools>=83 and cannot be fixed until the lab migrates off DataJoint
     # 0.14.x / schema-breaking DataJoint 2.x.
-    "setuptools>=79.0.1,<81",
+    "setuptools>=83.0.0,<84",
 ]
 
 [project.scripts]
