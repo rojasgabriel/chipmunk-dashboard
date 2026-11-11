@@ -7,8 +7,8 @@ state for current work.
 
 - Preserve the dependency direction: `cli.py -> app.py -> data.py`.
 - `app.py` must not query the database directly.
-- If you add new Dash imports in `app.py`, update the fake Dash shims in
-  `tests/test_app.py` and `tests/test_integration.py`.
+- If you add new Dash imports in `app.py`, update the fake Dash shim in
+  `tests/test_integration.py`.
 - Keep callback `Output(...)` order aligned with callback return tuples.
 - Keep DataJoint on `0.14.x` (`datajoint>=0.14.8,<0.15`); newer DataJoint
   breaks existing lab schemas. Do not loosen that bound without schema

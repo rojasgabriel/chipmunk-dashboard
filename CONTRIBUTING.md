@@ -73,14 +73,12 @@ That skill walks the full change:
 - metric in `data.py` if needed
 - layout row in `app.py`
 - callback `Output(...)` and return tuple
-- tests in `tests/test_app.py` and `tests/test_integration.py`
+- tests in `tests/test_integration.py`
 
 ### Adding Dash imports
 
-If you add new imports from `dash` in `app.py`, update the fake Dash shims in:
-
-- `tests/test_app.py`
-- `tests/test_integration.py`
+If you add new imports from `dash` in `app.py`, update the fake Dash shim in
+`tests/test_integration.py`.
 
 ### Dependencies
 

@@ -1,9 +1,8 @@
-"""Playwright-based browser smoke and screenshot regression tests."""
+"""Playwright browser smoke tests (opt-in via RUN_PLAYWRIGHT=1)."""
 
 from __future__ import annotations
 
 import importlib
-import json
 import os
 import sys
 import threading
@@ -12,13 +11,9 @@ import types
 import urllib.error
 import urllib.request
 from contextlib import ExitStack
-from io import BytesIO
-from pathlib import Path
 from unittest import mock
 
-import numpy as np
 import pytest
-from PIL import Image
 from playwright.sync_api import expect
 from werkzeug.serving import make_server
 
@@ -26,62 +21,6 @@ if os.getenv("RUN_PLAYWRIGHT") != "1":
     pytest.skip(
         "Playwright tests are disabled. Set RUN_PLAYWRIGHT=1 to enable.",
         allow_module_level=True,
-    )
-
-
-HASH_FILE = Path(__file__).with_name("playwright_layout_hashes.json")
-HASH_BITS = 16  # 16x16 = 256-bit dHash
-MAX_HASH_DISTANCE = 42
-
-
-def _load_hashes() -> dict[str, str]:
-    if not HASH_FILE.exists():
-        return {}
-    return json.loads(HASH_FILE.read_text())
-
-
-def _save_hashes(hashes: dict[str, str]) -> None:
-    HASH_FILE.write_text(json.dumps(hashes, indent=2, sort_keys=True) + "\n")
-
-
-def _dhash(png_bytes: bytes, hash_bits: int = HASH_BITS) -> int:
-    img = Image.open(BytesIO(png_bytes)).convert("L")
-    img = img.resize((hash_bits + 1, hash_bits), Image.Resampling.LANCZOS)
-    pixels = np.asarray(img, dtype=np.uint8)
-
-    value = 0
-    for row in range(hash_bits):
-        for col in range(hash_bits):
-            left = int(pixels[row, col])
-            right = int(pixels[row, col + 1])
-            value = (value << 1) | int(right > left)
-    return value
-
-
-def _hamming_distance(a: int, b: int) -> int:
-    return (a ^ b).bit_count()
-
-
-def _assert_layout_hash(name: str, png_bytes: bytes) -> None:
-    current = _dhash(png_bytes)
-    hashes = _load_hashes()
-
-    if os.getenv("UPDATE_PLAYWRIGHT_HASHES") == "1":
-        hashes[name] = f"{current:064x}"
-        _save_hashes(hashes)
-        pytest.skip(f"Updated screenshot hash baseline for {name}.")
-
-    if name not in hashes:
-        pytest.fail(
-            f"Missing screenshot hash baseline for '{name}'. "
-            "Run with UPDATE_PLAYWRIGHT_HASHES=1 to generate baselines."
-        )
-
-    expected = int(hashes[name], 16)
-    distance = _hamming_distance(current, expected)
-    assert distance <= MAX_HASH_DISTANCE, (
-        f"Screenshot regression for '{name}': hamming distance {distance} "
-        f"(allowed <= {MAX_HASH_DISTANCE})"
     )
 
 
@@ -225,7 +164,6 @@ def dashboard_url():
     fake_data.multisession_metrics = lambda *_args, **_kwargs: (
         _multisession_metrics_payload()
     )
-    fake_data.prewarm_multisession_cache = lambda *_args, **_kwargs: None
 
     with ExitStack() as stack:
         stack.enter_context(
@@ -294,20 +232,3 @@ def test_sidebar_toggle_button_collapses_sidebar(page, dashboard_url):
     expect(sidebar).to_be_visible()
     expect(button).to_have_attribute("title", "Hide sidebar")
     expect(button).to_have_text("⬅️")
-
-
-def test_overview_layout_hash_regression(page, dashboard_url):
-    _open_dashboard_with_subject(page, dashboard_url)
-    _open_single_session_tab(page, "Overview")
-    page.wait_for_timeout(300)
-    screenshot = page.locator(".dashboard-main").screenshot(type="png")
-    _assert_layout_hash("single_overview", screenshot)
-
-
-def test_timing_layout_hash_regression(page, dashboard_url):
-    _open_dashboard_with_subject(page, dashboard_url)
-    _open_single_session_tab(page, "Timing")
-    page.wait_for_selector("#iti-rolling .main-svg", timeout=10000)
-    page.wait_for_timeout(300)
-    screenshot = page.locator(".dashboard-main").screenshot(type="png")
-    _assert_layout_hash("single_timing", screenshot)

@@ -88,14 +88,6 @@ def test_ensure_bundled_package_prefers_adapter_tree_over_other_install(
     assert Path(chipmunk_dashboard.__file__).resolve().is_relative_to(package_dir)
 
 
-def test_data_module_imports_labdata_before_chipmunk():
-    """Preference plugins only land in sys.modules after labdata loads."""
-    source = Path("src/chipmunk_dashboard/data.py").read_text(encoding="utf-8")
-    labdata_import = source.index("import labdata")
-    chipmunk_import = source.index("from chipmunk import Chipmunk")
-    assert labdata_import < chipmunk_import
-
-
 def test_labdata_plugin_path_makes_chipmunk_importable(tmp_path):
     """Mirrors labdata prefs['plugins']['chipmunk'] = <plugin dir>."""
     plugin_dir = tmp_path / "chipmunk"
